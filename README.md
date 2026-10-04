@@ -39,6 +39,8 @@ config.yaml ──► AppConfig (pydantic)
 | `MemoryManager` | debounced background updates: a burst of turns costs one extraction |
 | `MemoryMiddleware` | before a run: hidden `<memory>` message; after it: queue the exchange |
 | `McpServerConfig` / `McpToolLoader` | connects to MCP servers (stdio/http/sse), one at a time; a broken server is skipped. Tools are prefixed `server_tool` |
+| `Persistence` | the storage bundle: SQLite checkpointer (messages) + `ThreadStore` + `RunStore` (metadata); in-memory when off |
+| `RunService` | one run: claim the thread, record it, invoke the agent, record the outcome; rejects a second run on a busy thread |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -69,6 +71,15 @@ sees a `task` tool. A subagent gets only the task text, its own system prompt an
 filtered copy of the lead agent's tools (never `task`, never `ask_clarification`), and
 returns only its final message, so the lead's context stays small. How this differs
 from real DeerFlow is in `docs/deerflow-comparison.md`.
+
+## Persistence
+
+`dearflow --persist --thread-id trip` saves the conversation to `data/dearflow.db`;
+run the same command tomorrow and it continues, and `dearflow --list-threads` shows
+what you have. Two layers, like DeerFlow: LangGraph's checkpointer stores the messages;
+the `threads` table (owner, title, idle/busy) and `runs` table (status, error, preview)
+describe them. A crash leaves no stuck state: at startup, runs still marked `running`
+become `interrupted` and their threads are freed. Only one run per thread at a time.
 
 ## MCP
 
@@ -114,7 +125,7 @@ uv run pytest -q
 5. ✅ Subagents (`task` tool)
 6. ✅ Memory
 7. ✅ MCP
-8. Persistence: SQLite checkpointer + thread/run tables
+8. ✅ Persistence: SQLite checkpointer + thread/run tables
 9. Streaming: stream modes, run events
 10. FastAPI gateway (SSE endpoint)
 11. Token usage + token budget

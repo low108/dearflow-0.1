@@ -6,11 +6,11 @@ import argparse
 import os
 from collections.abc import Callable, Sequence
 
-from langgraph.checkpoint.memory import InMemorySaver
-
 from dearflow.agents import LeadAgentFactory
 from dearflow.config import AppConfig
 from dearflow.models import ModelFactory
+from dearflow.persistence import Persistence
+from dearflow.service import RunService
 
 ChatRunner = Callable[..., None]
 
@@ -25,25 +25,35 @@ def run_chat(
     read: Callable[[str], str] = input,
     write: Callable[[str], None] = print,
 ) -> None:
-    """Run a checkpointed chat loop until the user types exit/quit."""
-    factory = LeadAgentFactory(
-        app_config,
-        model_factory=model_factory,
-        checkpointer=InMemorySaver(),
-    )
+    """Run a chat loop until the user types exit/quit.
+
+    With `persistence.enabled`, the conversation is saved: start again with the
+    same `--thread-id` and it continues where it stopped.
+    """
+    persistence = Persistence.from_config(app_config.persistence)
+    factory = LeadAgentFactory(app_config, model_factory=model_factory, checkpointer=persistence.checkpointer)
     agent = factory.build({"configurable": {"model_name": model_name}})
-    run_config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
+    service = RunService(agent, persistence)
 
     try:
-        _chat_loop(agent, run_config, read, write, model_name=agent.model_name)
+        write(f"DearFlow CLI — model: {agent.model_name}")
+        _show_resumed_thread(service, persistence, thread_id, write)
+        write("Type 'exit' or 'quit' to stop.")
+        _chat_loop(service, thread_id, user_id, read, write)
     finally:
         factory.flush_memory()
+        persistence.close()
 
 
-def _chat_loop(agent, run_config, read, write, *, model_name: str) -> None:
-    write(f"DearFlow CLI — model: {model_name}")
-    write("Type 'exit' or 'quit' to stop.")
+def _show_resumed_thread(service: RunService, persistence: Persistence, thread_id: str, write) -> None:
+    record = persistence.threads.get(thread_id)
+    if record is None:
+        return
+    turns = sum(1 for m in service.history(thread_id) if m.type == "human")
+    write(f"Resuming thread {thread_id!r}{f' — {record.title}' if record.title else ''} ({turns} earlier messages)")
 
+
+def _chat_loop(service: RunService, thread_id: str, user_id: str, read, write) -> None:
     while True:
         try:
             message = read("You: ").strip()
@@ -54,9 +64,21 @@ def _chat_loop(agent, run_config, read, write, *, model_name: str) -> None:
         if not message:
             continue
 
-        result = agent.graph.invoke({"messages": [{"role": "user", "content": message}]}, run_config)
-        content = result["messages"][-1].content
-        write(f"DearFlow: {content if isinstance(content, str) else str(content)}")
+        result = service.invoke(message, thread_id=thread_id, user_id=user_id)
+        write(f"DearFlow: {result.text}")
+
+
+def list_threads(app_config: AppConfig, user_id: str, write: Callable[[str], None] = print) -> None:
+    """Print the user's saved conversations, newest first."""
+    persistence = Persistence.from_config(app_config.persistence)
+    try:
+        records = persistence.threads.list(user_id)
+        if not records:
+            write("No saved threads.")
+        for record in records:
+            write(f"{record.thread_id}\t{record.updated_at[:19]}\t{record.title or '(untitled)'}")
+    finally:
+        persistence.close()
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -72,6 +94,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--plan", action="store_true", help="Plan mode: enable the write_todos task list.")
     parser.add_argument("--memory", action="store_true", help="Enable long-term memory (facts saved under memory.storage_path).")
     parser.add_argument("--user-id", default="default", help="Whose memory to use.")
+    parser.add_argument("--persist", action="store_true", help="Save conversations to persistence.path so they survive restarts.")
+    parser.add_argument("--list-threads", action="store_true", help="List saved conversations and exit.")
     parser.add_argument("--subagents", action="store_true", help="Enable the `task` tool for delegating to subagents.")
     return parser
 
@@ -90,6 +114,13 @@ def main(argv: Sequence[str] | None = None, *, chat_runner: ChatRunner = run_cha
 
     if args.memory:
         app_config = app_config.model_copy(update={"memory": app_config.memory.model_copy(update={"enabled": True})})
+
+    if args.persist or args.list_threads:
+        app_config = app_config.model_copy(update={"persistence": app_config.persistence.model_copy(update={"enabled": True})})
+
+    if args.list_threads:
+        list_threads(app_config, args.user_id)
+        return 0
 
     chat_runner(app_config=app_config, thread_id=args.thread_id, user_id=args.user_id, model_name=args.model)
     return 0

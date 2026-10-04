@@ -154,6 +154,13 @@ class McpConfig(_Config):
     servers: dict[str, McpServerConfig] = Field(default_factory=dict)
 
 
+class PersistenceConfig(_Config):
+    """Where conversations are stored. Off = everything is forgotten on exit."""
+
+    enabled: bool = False
+    path: str = "data/dearflow.db"  # SQLite file: checkpoints + thread/run records
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -172,6 +179,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)

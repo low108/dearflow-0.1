@@ -36,6 +36,13 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Saved conversations. On: messages are checkpointed to a SQLite file, and thread
+# and run records are kept beside them. Restart with the same --thread-id to
+# continue (also: `dearflow --persist`, `dearflow --list-threads`).
+persistence:
+  enabled: false
+  path: data/dearflow.db
+
 # Tools from external MCP servers (https://modelcontextprotocol.io). Each server
 # is loaded independently at startup; one that fails is logged and skipped.
 # `$NAME` in command/args/env/url/headers is read from the environment.

@@ -3,4 +3,5 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 config.yaml
+/data/
 /memory/

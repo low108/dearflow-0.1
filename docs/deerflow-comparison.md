@@ -36,7 +36,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Title | model-written, with retries | ✅ fallback-first, optional model |
 | Subagents | background executor, polling, batches, ledger, receipts, acceptance checks | ✅ `task` tool + registry + executor + limit middleware |
 | Memory | `MemoryMiddleware` + debounce queue + LLM updater; facts as Markdown files; pluggable backends | ✅ slice 6: same flow, one JSON file per user |
-| Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ⏭ slice 8 (SQLite only) |
+| Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ✅ slice 8: SQLite, plain `sqlite3` |
 | Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ⏭ slice 9 |
 | Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 10 (FastAPI only) |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
@@ -104,6 +104,18 @@ by file signature, OAuth and per-user/per-request credentials, interceptors, rou
 long-running MCP tasks (SQL-backed), stdio file-path translation, and the HTTP-boundary launch
 policy. If you expose config editing over an API later, add that launch screening: a stdio
 `command` is arbitrary code execution.
+
+## Persistence (slice 8): what we kept
+
+DeerFlow splits storage in two: the LangGraph checkpointer holds messages (memory / SQLite / Postgres),
+and SQL tables hold metadata (`threads_meta`, `runs`, `run_events`). It allows one pending or running
+run per thread (`multitask_strategy: reject`) and stores a preview on each run (`first_human_message`,
+`last_ai_message`, `message_count`). We keep all of that, as `threads` and `runs` tables in one SQLite
+file, written with plain `sqlite3` instead of SQLAlchemy, plus crash recovery at startup.
+
+We drop: Postgres, migrations, ORM, multi-worker leases and cancel flags, idempotency keys, projects,
+`run_events` (comes back with streaming in slice 9), token columns (slice 11), per-user access checks
+(a thread records its owner; the gateway in slice 10 will enforce it), and async savers (slice 10).
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 
