@@ -48,6 +48,8 @@ config.yaml ──► AppConfig (pydantic)
 | `RunManager` / `ActiveRun` | runs agents in background threads; buffers events so many clients can watch, join late, or cancel |
 | `UsageCallback` / `RunUsage` | counts tokens of one run across the lead agent, subagents and middleware; saved on the run record |
 | `TokenBudgetMiddleware` | soft warning (shown to the next model call only), then hard stop (tool calls removed); shared with subagents |
+| `Redactor` / `make_redactor` | regex detectors with checksums (Luhn, CN ID, CPF) and HMAC placeholders `[EMAIL_abc...]`; no model call |
+| `PiiRedactionMiddleware` | redacts what the model is shown: user messages and results of outside tools (MCP). Memory queue, titles and summaries use the same redactor |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -136,6 +138,19 @@ keeps it going; `join` observers never cancel it. With `gateway.api_key` set, se
 `Authorization: Bearer <key>`; the `X-User-Id` header then names the user, and other users'
 threads answer `404`.
 
+## PII redaction
+
+With `pii_redaction.enabled`, the model never sees emails, API keys, card numbers, phone numbers or
+national IDs. They become placeholders such as `[EMAIL_kdjwhqmnepsjzhxuwqgtbvacirl]`. A placeholder is an HMAC of
+the value under your `token_secret`: the same address always gets the same token (so "write to ann@..." then
+"and cc ann@..." still refers to one person) but nobody can compute a token from a guessed value, or go back from a
+token to the value. Numbers are only redacted if they pass their checksum, so order numbers are left alone.
+Redaction happens where outside text enters: user messages (at each model call), results of MCP tools and tools
+listed in `pii_redaction.tool_names`, the memory queue, titles, and the input of summarization. Subagents are
+covered too. **The stored conversation keeps the original** (so the user sees what they wrote; run previews are also
+raw), and the model's answers can contain placeholders, which are not turned back. If redaction itself fails, the
+text goes through and a warning is logged.
+
 ## Tokens
 
 Every run records its tokens (`runs` table, `RunResponse`, the `end` event, and the CLI's `tokens:` line),
@@ -194,7 +209,7 @@ uv run pytest -q
 9. ✅ Streaming: stream modes, run events
 10. ✅ FastAPI gateway (SSE endpoint)
 11. ✅ Token usage + token budget
-12. PII redaction
+12. ✅ PII redaction
 13. Tool receipts + audit
 
 Slices 11-13 are the hardening DeerFlow adds around the core. Each is one middleware

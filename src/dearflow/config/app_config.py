@@ -195,6 +195,32 @@ class TokenBudgetConfig(_Config):
         return self
 
 
+class PiiRedactionConfig(_Config):
+    """Hide personal data from the model (same options as DeerFlow's). Off by default.
+
+    Covers what the model is shown (user messages, results of outside-content tools),
+    the memory queue, titles and summaries. Stored conversations keep the original text.
+    """
+
+    enabled: bool = False
+    redact_email: bool = True
+    redact_api_key: bool = True  # OpenAI sk-, AWS AKIA, GitHub ghp_/github_pat_, Slack xox-, Google AIza
+    redact_credit_card: bool = True  # only numbers that pass the Luhn checksum
+    redact_phone: bool = True  # +CC international, CN mobile, US formatted
+    redact_national_id: bool = True  # CN resident ID and CPF (checksummed), CUIT and RFC (format)
+    token_secret: str | None = None  # HMAC key for placeholders, 16+ chars; `$ENV_VAR` allowed
+    tool_names: list[str] = Field(default_factory=list)  # extra tools whose results come from outside (MCP tools always do)
+
+    @model_validator(mode="after")
+    def _secret_required_when_enabled(self) -> PiiRedactionConfig:
+        if self.enabled and not (self.token_secret or "").strip():
+            raise ValueError(
+                "pii_redaction.enabled needs token_secret: without a secret key, placeholders would be "
+                "fingerprints anyone could compute from a guessed value"
+            )
+        return self
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -213,6 +239,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    pii_redaction: PiiRedactionConfig = Field(default_factory=PiiRedactionConfig)
     token_usage: TokenUsageConfig = Field(default_factory=TokenUsageConfig)
     token_budget: TokenBudgetConfig = Field(default_factory=TokenBudgetConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)

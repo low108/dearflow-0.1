@@ -41,7 +41,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Gateway / UI | FastAPI + Next.js frontend | ✅ slice 10: same routes and body fields, no UI |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
 | Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ✅ slice 11 |
-| PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ⏭ slice 12 |
+| PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ✅ slice 12 |
 | Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ⏭ slice 13 |
 | Other safety | input sanitization, loop detection, finish-reason guards, read-before-write | ✂️ |
 | Other observability | progress events, tool output synopsis | ✂️ |
@@ -172,6 +172,23 @@ middleware model calls are all seen by one counter, tagged by caller, with no me
 model calls outside a run (memory extraction in its timer thread) are not counted, and the budget only works under
 `RunService`. A hard stop on a message that already has no tool calls leaves the answer untouched (DeerFlow appends the
 notice anyway). We drop per-step attribution metadata for the UI, the `context_usage` block, and cache-token accounting.
+
+## PII redaction (slice 12): what we kept
+
+A port of `pii_redaction_middleware.py` and its config: the same five detectors in the same pinned order
+(email, api_key, national_id, credit_card, phone), the same patterns (digit lookarounds instead of `\b` so Chinese labels
+don't hide a number), the same checksums (Luhn, GB 11643 for CN resident IDs, CPF mod-11; CUIT and RFC are format-only),
+the same placeholder (HMAC-SHA256 of `category\0value` under a required 16+ character secret, 128 bits as 27 base-26 letters, so
+a token has no digit runs), per-detector switches, default off. Scope matches: user messages are rewritten in the request only
+(the state keeps the original and every call redacts the history again), outside tool results are rewritten at the tool
+boundary (MCP tools by tag, others by name), subagents are covered, and the memory queue, titles (before truncation) and
+summarization input (`redact_queued_messages`, title, compaction seams) use the same redactor. Errors fail open with a warning.
+It sits innermost among wrappers, just before the clarification middleware.
+
+We drop: redaction of the durable-context summary (we have none), the tool-transform audit marker, the hardcoded list of
+first-party web tool names (ours is `pii_redaction.tool_names`, since DearFlow has no web tools yet), and the independent
+deep-copy fallbacks (our rewrite builds new strings and never mutates messages). Not covered by either project: the
+assistant's own replies and raw storage (checkpoints, run previews, run log), which keep the original text.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

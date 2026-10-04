@@ -2,6 +2,8 @@ from dearflow.middlewares.chain import MiddlewareChain
 from dearflow.middlewares.clarification import ClarificationMiddleware
 from dearflow.middlewares.dynamic_context import DynamicContextMiddleware
 from dearflow.middlewares.memory import MemoryMiddleware
+from dearflow.middlewares.pii_redaction import PiiRedactionMiddleware
+from dearflow.middlewares.redacting_summarization import RedactingSummarizationMiddleware
 from dearflow.middlewares.subagent_limit import SubagentLimitMiddleware
 from dearflow.middlewares.title import TitleMiddleware
 from dearflow.middlewares.token_budget import TokenBudgetMiddleware
@@ -13,6 +15,8 @@ __all__ = [
     "DynamicContextMiddleware",
     "MemoryMiddleware",
     "MiddlewareChain",
+    "PiiRedactionMiddleware",
+    "RedactingSummarizationMiddleware",
     "SubagentLimitMiddleware",
     "TitleMiddleware",
     "TokenBudgetMiddleware",

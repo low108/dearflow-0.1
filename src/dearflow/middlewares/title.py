@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -36,8 +37,16 @@ class TitleMiddleware(AgentMiddleware):
     falls back to the shortened message.
     """
 
-    def __init__(self, *, model: BaseChatModel | None = None, max_words: int = 6, max_chars: int = 60) -> None:
+    def __init__(
+        self,
+        *,
+        model: BaseChatModel | None = None,
+        max_words: int = 6,
+        max_chars: int = 60,
+        redact: Callable[[str], str] | None = None,
+    ) -> None:
         super().__init__()
+        self._redact = redact or (lambda text: text)  # applied to the text BEFORE it is shortened or sent
         self._model = model
         self._max_words = max_words
         self._max_chars = max_chars
@@ -72,8 +81,7 @@ class TitleMiddleware(AgentMiddleware):
 
     # --- helpers -----------------------------------------------------------
 
-    @staticmethod
-    def _first_exchange(state: Any) -> tuple[str, str] | None:
+    def _first_exchange(self, state: Any) -> tuple[str, str] | None:
         """(user text, assistant text) if a title is due, else None."""
         if state.get("title"):
             return None
@@ -86,7 +94,7 @@ class TitleMiddleware(AgentMiddleware):
         replies = [m for m in messages if isinstance(m, (AIMessage, ToolMessage)) and text_of(m).strip()]
         if not replies:
             return None
-        return text_of(users[0]), text_of(replies[-1])
+        return self._redact(text_of(users[0])), self._redact(text_of(replies[-1]))
 
     def _prompt(self, user: str, assistant: str) -> str:
         return _PROMPT.format(

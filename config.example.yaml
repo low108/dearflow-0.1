@@ -36,6 +36,19 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Hide personal data from the model: emails, API keys, card numbers (Luhn-checked), phone
+# numbers, national IDs. Each is replaced by a stable placeholder like [EMAIL_abc...].
+# The stored conversation keeps the original. token_secret is required (16+ characters).
+pii_redaction:
+  enabled: false
+  token_secret: $PII_TOKEN_SECRET
+  redact_email: true
+  redact_api_key: true
+  redact_credit_card: true
+  redact_phone: true
+  redact_national_id: true
+  tool_names: []           # extra tools whose results come from outside (MCP tools always do)
+
 # Token counting is on by default: every model call of a run (lead agent, subagents,
 # title/summary) is added up and saved with the run record.
 token_usage:

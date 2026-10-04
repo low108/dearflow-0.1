@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
@@ -43,10 +44,13 @@ class MemoryMiddleware(AgentMiddleware):
       reply are used; tool calls and hidden messages are ignored.
     """
 
-    def __init__(self, manager: MemoryManager, *, inject: bool = True) -> None:
+    def __init__(
+        self, manager: MemoryManager, *, inject: bool = True, redact: Callable[[str], str] | None = None
+    ) -> None:
         super().__init__()
         self._manager = manager
         self._inject = inject
+        self._redact = redact  # the queue is saved to disk, so personal data must not get in
 
     def before_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         if not self._inject:
@@ -70,6 +74,8 @@ class MemoryMiddleware(AgentMiddleware):
     def after_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         exchange = self._latest_exchange(state["messages"])
         if exchange is not None:
+            if self._redact is not None:
+                exchange = Exchange(self._redact(exchange.user), self._redact(exchange.assistant))
             self._manager.enqueue(current_user_id(), [exchange])
         return None
 

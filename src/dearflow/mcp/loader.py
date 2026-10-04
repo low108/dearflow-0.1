@@ -108,4 +108,7 @@ class McpToolLoader:
     @staticmethod
     async def _load_one(name: str, server: McpServerConfig) -> list[BaseTool]:
         client = MultiServerMCPClient({name: build_connection(server)}, tool_name_prefix=server.tool_name_prefix)
-        return [with_sync_support(t) for t in await client.get_tools()]
+        tools = [with_sync_support(t) for t in await client.get_tools()]
+        for tool in tools:  # mark where the tool came from, so results can be treated as outside content
+            tool.metadata = {**(tool.metadata or {}), "dearflow_source": "mcp"}
+        return tools

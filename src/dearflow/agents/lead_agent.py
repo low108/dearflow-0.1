@@ -12,8 +12,10 @@ from langgraph.graph.state import CompiledStateGraph
 
 from dearflow.config import AppConfig
 from dearflow.mcp import McpToolLoader
+from dearflow.config import expand_env
 from dearflow.memory import FactExtractor, MemoryManager, MemoryStore
-from dearflow.middlewares import MiddlewareChain, TokenBudgetMiddleware
+from dearflow.middlewares import MiddlewareChain, PiiRedactionMiddleware, TokenBudgetMiddleware
+from dearflow.pii import make_redactor
 from dearflow.models import ModelFactory
 from dearflow.prompts import PromptBuilder
 from dearflow.skills import SkillCatalog, create_load_skill_tool
@@ -76,6 +78,9 @@ class LeadAgentFactory:
         self._middleware_chain = middleware_chain  # None = build the default per run
         self._checkpointer = checkpointer
         self._memory: MemoryManager | None = None  # built on first use
+        pii = app_config.pii_redaction
+        # Resolved once, at startup: a missing or too-short secret should stop the app, not a request.
+        self._redactor = make_redactor(pii, expand_env(pii.token_secret)) if pii.enabled else None
         self.usage = UsageRegistry()  # shared by every agent this factory builds
         self._mcp = McpToolLoader(app_config.mcp)  # connects to servers on first build()
 
@@ -111,6 +116,8 @@ class LeadAgentFactory:
             inject_memory=self._app_config.memory.injection_enabled,
             token_budget=self._app_config.token_budget,
             usage=self.usage,
+            redactor=self._redactor,
+            pii_tool_names=self._app_config.pii_redaction.tool_names,
         )
 
         prompt = PromptBuilder(
@@ -155,9 +162,13 @@ class LeadAgentFactory:
             self._memory.flush()
 
     def _subagent_middleware(self) -> list:
-        """Subagents share the run's token budget: they stop when the whole run is over."""
+        """What subagents inherit: the run's token budget (they stop when the whole run is over)
+        and PII redaction."""
         budget = self._app_config.token_budget
-        return [TokenBudgetMiddleware(budget, self.usage)] if budget.enabled else []
+        extra = [TokenBudgetMiddleware(budget, self.usage)] if budget.enabled else []
+        if self._redactor is not None:  # outside content reaches subagents too
+            extra.append(PiiRedactionMiddleware(self._redactor, self._app_config.pii_redaction.tool_names))
+        return extra
 
     def _create_model(self, alias: str):
         return self._model_factory.create(self._app_config.resolve_model(alias))
