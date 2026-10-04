@@ -21,3 +21,6 @@ tools:
 skills:
   enabled: true
   path: skills
+
+# Plan mode adds the write_todos task list (also: `dearflow --plan`).
+plan_mode: false

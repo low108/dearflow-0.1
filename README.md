@@ -25,6 +25,8 @@ config.yaml ──► AppConfig (pydantic)
 | `Skill` / `SkillCatalog` | parse `skills/**/SKILL.md` (frontmatter + body) and index them by name |
 | `create_load_skill_tool` | `load_skill(name)` tool: the model pulls a skill's full text on demand |
 | `PromptBuilder` | builds the system prompt; lists skill names + descriptions only |
+| `ask_clarification` + `ClarificationMiddleware` | model asks you a question; the run ends and your reply starts the next turn |
+| `TodoMiddleware` | plan mode: `write_todos` task list + guard against finishing with open todos |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -69,7 +71,7 @@ uv run pytest -q
 
 1. ✅ Base: typed config, factories, middleware chain
 2. ✅ Prompt + skills
-3. Core tools (clarification, todos; web search deferred)
+3. ✅ Core tools (clarification, todos; web search deferred)
 4. Context middleware (date, summarization, title)
 5. Subagents (`task` tool)
 6. Memory

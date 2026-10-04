@@ -15,7 +15,7 @@ from dearflow.middlewares import MiddlewareChain
 from dearflow.models import ModelFactory
 from dearflow.prompts import PromptBuilder
 from dearflow.skills import SkillCatalog, create_load_skill_tool
-from dearflow.tools import ToolRegistry
+from dearflow.tools import ToolRegistry, ask_clarification
 
 
 class ThreadState(AgentState):
@@ -49,7 +49,7 @@ class LeadAgentFactory:
         run config -> pick model name -> ModelFactory -> model
                    -> SkillCatalog    -> PromptBuilder -> system prompt
                    -> ToolRegistry    -> tools (+ load_skill when skills exist)
-                   -> MiddlewareChain -> middleware
+                   -> MiddlewareChain -> middleware (todo guard only in plan mode)
                    -> create_agent(...) -> compiled graph
     """
 
@@ -66,8 +66,8 @@ class LeadAgentFactory:
         self._app_config = app_config
         self._model_factory = model_factory or ModelFactory()
         self._skills = skill_catalog if skill_catalog is not None else self._discover_skills()
-        self._tool_registry = tool_registry or ToolRegistry(app_config, extra_tools=self._skill_tools())
-        self._middleware_chain = middleware_chain or MiddlewareChain.default()
+        self._tool_registry = tool_registry or ToolRegistry(app_config, extra_tools=self._builtin_tools())
+        self._middleware_chain = middleware_chain  # None = build the default per run
         self._checkpointer = checkpointer
 
     def build(self, run_config: RunnableConfig | None = None) -> LeadAgent:
@@ -76,10 +76,13 @@ class LeadAgentFactory:
         requested = configurable.get("model_name")
         model_name = self._app_config.resolve_model(requested if isinstance(requested, str) else None)
 
+        plan_mode = bool(configurable.get("is_plan_mode", self._app_config.plan_mode))
+        chain = self._middleware_chain or MiddlewareChain.default(plan_mode=plan_mode)
+
         graph = create_agent(
             model=self._model_factory.create(model_name),
             tools=self._tool_registry.get_tools(),
-            middleware=self._middleware_chain.build(),
+            middleware=chain.build(),
             system_prompt=PromptBuilder(self._app_config.system_prompt, self._skills).build(),
             state_schema=ThreadState,
             context_schema=dict,
@@ -93,3 +96,7 @@ class LeadAgentFactory:
 
     def _skill_tools(self) -> list:
         return [create_load_skill_tool(self._skills)] if self._skills else []
+
+    def _builtin_tools(self) -> list:
+        """Tools every agent gets, added by code rather than listed in config."""
+        return [ask_clarification, *self._skill_tools()]

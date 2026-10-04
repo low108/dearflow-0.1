@@ -9,7 +9,7 @@ from dearflow.tools import ToolRegistry
 
 
 def _reply(text):
-    return FakeMessagesListChatModel(responses=[AIMessage(content=text)])
+    return ToolCapableFakeModel(responses=[AIMessage(content=text)])
 
 
 def test_build_returns_an_invokable_agent():

@@ -59,6 +59,7 @@ class AppConfig(_Config):
     models: dict[str, ModelConfig] = Field(default_factory=dict)
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> AppConfig:

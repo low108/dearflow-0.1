@@ -61,6 +61,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", help="Model alias or identifier; overrides default_model.")
     parser.add_argument("--thread-id", default="cli", help="Conversation checkpoint thread ID.")
     parser.add_argument("--system-prompt", help="Override the configured system prompt.")
+    parser.add_argument("--plan", action="store_true", help="Plan mode: enable the write_todos task list.")
     return parser
 
 
@@ -69,6 +70,9 @@ def main(argv: Sequence[str] | None = None, *, chat_runner: ChatRunner = run_cha
     app_config = AppConfig.from_yaml(args.config)
     if args.system_prompt:
         app_config = app_config.model_copy(update={"system_prompt": args.system_prompt})
+
+    if args.plan:
+        app_config = app_config.model_copy(update={"plan_mode": True})
 
     chat_runner(app_config=app_config, thread_id=args.thread_id, model_name=args.model)
     return 0

@@ -15,6 +15,17 @@ Available skills:
 </skills>"""
 
 
+_CLARIFICATION_SECTION = """\
+<clarification_system>
+Workflow: CLARIFY, then PLAN, then ACT.
+Before working, check whether you can do the task well. If required
+information is missing, the request is ambiguous, there are several valid
+approaches, or an action is risky or irreversible, call `ask_clarification`
+FIRST. Ask one clear question, and do not call any other tool in that turn.
+If the request is clear, do not ask: just do it.
+</clarification_system>"""
+
+
 class PromptBuilder:
     """Builds the system prompt.
 
@@ -27,7 +38,7 @@ class PromptBuilder:
         self._skills = skill_catalog or SkillCatalog()
 
     def build(self) -> str:
-        sections = [self._base_prompt, self._skills_section()]
+        sections = [self._base_prompt, _CLARIFICATION_SECTION, self._skills_section()]
         return "\n\n".join(section for section in sections if section)
 
     def _skills_section(self) -> str:

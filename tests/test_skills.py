@@ -49,7 +49,7 @@ def test_prompt_lists_skills_but_not_their_bodies(tmp_path):
     assert prompt.startswith("Base.")
     assert "- alpha: Use for alpha." in prompt
     assert "SECRET BODY" not in prompt
-    assert PromptBuilder("Base.").build() == "Base."
+    assert "<skills>" not in PromptBuilder("Base.").build()
 
 
 def test_load_skill_tool_returns_body_or_lists_available(tmp_path):
