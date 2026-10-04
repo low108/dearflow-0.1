@@ -68,7 +68,7 @@ def test_stream_order_ids_and_requested_modes_only():
     assert ids == sorted(set(ids)) and ids[0] == 1  # increasing; gaps are logged-but-unsent `updates`
     answer = [e.data for e in events if e.event == "messages" and e.data["node"] == "model"]
     assert answer[-1]["message"]["content"] == "Hello there"
-    assert events[-1].data == {"status": "success"}
+    assert events[-1].data["status"] == "success" and "total_tokens" in events[-1].data["usage"]
     assert events[0].data["thread_id"] == "t1"
 
 
@@ -123,7 +123,7 @@ def test_run_log_keeps_updates_but_not_tokens_or_snapshots_and_can_resume():
 
     logged = service.events(run_id)
     assert set(names(logged)) == {"metadata", "updates", "end"}  # no messages, no values
-    assert logged[0].data["run_id"] == run_id and logged[-1].data == {"status": "success"}
+    assert logged[0].data["run_id"] == run_id and logged[-1].data["status"] == "success"
     assert [e.id for e in service.events(run_id, after_seq=logged[1].id)] == [e.id for e in logged[2:]]
 
 
@@ -142,7 +142,7 @@ def test_failure_becomes_error_then_end_and_is_recorded():
     service, persistence = service_for([])  # the fake model raises
     events = list(service.stream("hi", thread_id="t1"))
 
-    assert names(events)[-2:] == ["error", "end"] and events[-1].data == {"status": "error"}
+    assert names(events)[-2:] == ["error", "end"] and events[-1].data["status"] == "error"
     assert events[-2].data["message"]
     run = persistence.runs.list("t1")[0]
     assert run.status == "error" and persistence.threads.get("t1").status == "idle"

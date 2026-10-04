@@ -46,6 +46,8 @@ config.yaml ──► AppConfig (pydantic)
 | `RunEventStore` | the run log (`updates`, `custom`, errors, start/end) for replay |
 | `create_app` (gateway) | FastAPI app with DeerFlow's routes: `/api/threads`, `/runs`, `/runs/stream`, `/runs/wait`, `/join`, `/cancel`, `/events` |
 | `RunManager` / `ActiveRun` | runs agents in background threads; buffers events so many clients can watch, join late, or cancel |
+| `UsageCallback` / `RunUsage` | counts tokens of one run across the lead agent, subagents and middleware; saved on the run record |
+| `TokenBudgetMiddleware` | soft warning (shown to the next model call only), then hard stop (tool calls removed); shared with subagents |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -134,6 +136,16 @@ keeps it going; `join` observers never cancel it. With `gateway.api_key` set, se
 `Authorization: Bearer <key>`; the `X-User-Id` header then names the user, and other users'
 threads answer `404`.
 
+## Tokens
+
+Every run records its tokens (`runs` table, `RunResponse`, the `end` event, and the CLI's `tokens:` line),
+split into `lead_agent`, `subagent` and `middleware` (title/summary) and by model;
+`GET /api/threads/{id}/token-usage` sums them per thread. Turn on a limit with `token_budget.enabled`:
+at 80% the model gets a one-time "wrap up" notice (only in its next request, never stored in the
+conversation); at 100% its tool calls are removed, so it has to answer with what it has, and the run is
+recorded with `stop_reason: "token_capped"`. Nothing is raised. Subagents count toward the same budget.
+The budget needs `RunService` (CLI, gateway) because that is what counts tokens; a bare `graph.invoke` is not limited.
+
 ## MCP
 
 MCP servers are external programs or URLs that offer tools (GitHub, databases, search).
@@ -181,7 +193,7 @@ uv run pytest -q
 8. ✅ Persistence: SQLite checkpointer + thread/run tables
 9. ✅ Streaming: stream modes, run events
 10. ✅ FastAPI gateway (SSE endpoint)
-11. Token usage + token budget
+11. ✅ Token usage + token budget
 12. PII redaction
 13. Tool receipts + audit
 

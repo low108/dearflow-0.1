@@ -18,6 +18,7 @@ from langgraph.errors import GraphRecursionError
 from dearflow.middlewares.messages import text_of
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
 from dearflow.subagents.spec import INHERIT, SubagentSpec
+from dearflow.usage import CALLER_KEY, SUBAGENT
 
 logger = logging.getLogger(__name__)
 
@@ -69,8 +70,16 @@ class SubagentExecutor:
     returns only its last message. The lead agent's context stays small.
     """
 
-    def __init__(self, tools: Sequence[BaseTool], *, default_model: BaseChatModel, model_resolver) -> None:
+    def __init__(
+        self,
+        tools: Sequence[BaseTool],
+        *,
+        default_model: BaseChatModel,
+        model_resolver,
+        extra_middleware: Sequence[Any] = (),
+    ) -> None:
         self._tools = list(tools)
+        self._extra_middleware = list(extra_middleware)  # e.g. the token budget, shared with the lead agent
         self._default_model = default_model
         self._resolve_model = model_resolver  # alias -> chat model, for specs with their own model
 
@@ -79,14 +88,15 @@ class SubagentExecutor:
         return create_agent(
             model=model,
             tools=filter_tools(self._tools, spec.tools, spec.disallowed_tools),
-            middleware=[ToolErrorHandlingMiddleware()],
+            middleware=[ToolErrorHandlingMiddleware(), *self._extra_middleware],
             system_prompt=spec.system_prompt,
         )
 
     @staticmethod
     def _run_config(spec: SubagentSpec) -> dict[str, Any]:
         # One turn = a model step + a tools step, plus the final answer step.
-        return {"recursion_limit": spec.max_turns * 2 + 1}
+        # The tag lets the usage counter tell subagent model calls from the lead agent's.
+        return {"recursion_limit": spec.max_turns * 2 + 1, "metadata": {CALLER_KEY: SUBAGENT}}
 
     @staticmethod
     def _inputs(prompt: str) -> dict[str, Any]:

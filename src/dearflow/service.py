@@ -15,6 +15,7 @@ from dearflow.persistence.runs import ERROR, INTERRUPTED, SUCCESS
 from dearflow.persistence.threads import IDLE
 from dearflow.streaming import END, ERROR as ERROR_EVENT, METADATA, StreamEvent, normalize_modes, to_jsonable
 from dearflow.text import text_of
+from dearflow.usage import UsageCallback
 
 _PREVIEW_CHARS = 2000
 # Events worth keeping in the run log. Tokens (`messages`) and full snapshots
@@ -31,6 +32,7 @@ class RunResult:
     run_id: str
     thread_id: str
     state: dict[str, Any]
+    usage: dict[str, Any] = field(default_factory=dict)  # token counts, see `RunUsage.snapshot`
 
     @property
     def text(self) -> str:
@@ -47,7 +49,7 @@ class _Run:
     thread_id: str
     config: dict[str, Any]
     state: dict[str, Any] | None = None  # set by the caller when it already has the final state
-    error: str | None = field(default=None)
+    usage: dict[str, Any] = field(default_factory=dict)  # filled in when the run ends
 
 
 class RunService:
@@ -61,16 +63,17 @@ class RunService:
     it runs; both share the same bookkeeping.
     """
 
-    def __init__(self, agent: LeadAgent, persistence: Persistence) -> None:
+    def __init__(self, agent: LeadAgent, persistence: Persistence, *, track_usage: bool = True) -> None:
         self._agent = agent
         self._db = persistence
+        self._track_usage = track_usage
 
     # --- public API ------------------------------------------------------------
 
     def invoke(self, message: str, *, thread_id: str, user_id: str = "default") -> RunResult:
         with self._tracked(message, thread_id, user_id) as run:
             run.state = self._agent.graph.invoke(self._input(message), run.config)
-        return RunResult(run.run_id, thread_id, run.state)
+        return RunResult(run.run_id, thread_id, run.state, run.usage)
 
     def stream(
         self,
@@ -101,8 +104,10 @@ class RunService:
             return item
 
         failure: str | None = None
+        handle: _Run | None = None
         try:
             with self._tracked(message, thread_id, user_id) as run:
+                handle = run
                 run_id = run.run_id
                 yield make(METADATA, {"run_id": run_id, "thread_id": thread_id})
                 for mode, chunk in self._agent.graph.stream(self._input(message), run.config, stream_mode=graph_modes):
@@ -123,7 +128,7 @@ class RunService:
         # The run is fully recorded by now, so a client that sees `end` can trust the records.
         if failure is not None:
             yield make(ERROR_EVENT, {"message": failure})
-        yield make(END, {"status": SUCCESS if failure is None else ERROR})
+        yield make(END, {"status": SUCCESS if failure is None else ERROR, "usage": handle.usage if handle else {}})
 
     def events(self, run_id: str, after_seq: int = 0) -> list[StreamEvent]:
         """Replay a finished (or running) run's log."""
@@ -176,18 +181,24 @@ class RunService:
             raise ThreadBusyError(f"thread {thread_id!r} already has a run in progress")
 
         run_id = runs.start(thread_id, user_id, self._agent.model_name)
-        config = {"configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id}}
+        config: dict[str, Any] = {"configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id}}
+        counter = self._agent.usage.open(run_id)
+        if self._track_usage:
+            config["callbacks"] = [UsageCallback(counter)]  # sees the lead agent, subagents and middleware
         run = _Run(run_id, thread_id, config)
         preview = message[:_PREVIEW_CHARS]
         try:
             yield run
         except Exception as exc:
-            runs.finish(run_id, ERROR, error=f"{type(exc).__name__}: {exc}", first_human_message=preview)
+            run.usage = counter.snapshot()
+            runs.finish(run_id, ERROR, error=f"{type(exc).__name__}: {exc}", first_human_message=preview, usage=run.usage)
             raise
         except BaseException:  # Ctrl-C, abandoned stream: not finished, and not an error either
-            runs.finish(run_id, INTERRUPTED, first_human_message=preview)
+            run.usage = counter.snapshot()
+            runs.finish(run_id, INTERRUPTED, first_human_message=preview, usage=run.usage)
             raise
         else:
+            run.usage = counter.snapshot()
             state = run.state or self._agent.graph.get_state(config).values
             runs.finish(
                 run_id,
@@ -195,10 +206,12 @@ class RunService:
                 first_human_message=preview,
                 last_ai_message=self._last_answer(state),
                 message_count=len(state["messages"]),
+                usage=run.usage,
             )
             if state.get("title"):
                 threads.set_title(thread_id, state["title"])
         finally:
+            self._agent.usage.close(run_id)
             threads.set_status(thread_id, IDLE)
 
     @staticmethod

@@ -71,3 +71,10 @@ def _require_thread(gw: Gateway, thread_id: str, user: str):
     if record is None:
         raise HTTPException(status_code=404, detail=f"Thread {thread_id} not found")
     return record
+
+
+@router.get("/{thread_id}/token-usage")
+async def thread_token_usage(thread_id: ThreadId, gw: Gateway = Depends(get_gateway), user: str = Depends(current_user)):
+    """Token totals for the whole thread, split by caller (lead / subagent / middleware) and model."""
+    _require_thread(gw, thread_id, user)
+    return {"thread_id": thread_id, **gw.persistence.runs.aggregate_tokens(thread_id)}

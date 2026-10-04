@@ -44,7 +44,7 @@ class Gateway:
 
     def _build(self, overrides: dict) -> RunService:
         agent = self.factory.build({"configurable": dict(overrides)})
-        return RunService(agent, self.persistence)
+        return RunService(agent, self.persistence, track_usage=self.config.token_usage.enabled)
 
 
 def get_gateway(request: Request) -> Gateway:

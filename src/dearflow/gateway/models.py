@@ -94,7 +94,14 @@ class RunResponse(BaseModel):
     created_at: str = ""
     updated_at: str = ""
     message_count: int = 0
-    stop_reason: str | None = None
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_tokens: int = 0
+    llm_call_count: int = 0
+    lead_agent_tokens: int = 0
+    subagent_tokens: int = 0
+    middleware_tokens: int = 0
+    stop_reason: str | None = None  # token_capped | interrupted | error
     error: str | None = None
 
     @classmethod
@@ -106,7 +113,14 @@ class RunResponse(BaseModel):
             created_at=record.created_at,
             updated_at=record.updated_at,
             message_count=record.message_count,
-            stop_reason=record.status if record.status in ("interrupted", "error") else None,
+            total_input_tokens=record.total_input_tokens,
+            total_output_tokens=record.total_output_tokens,
+            total_tokens=record.total_tokens,
+            llm_call_count=record.llm_call_count,
+            lead_agent_tokens=record.lead_agent_tokens,
+            subagent_tokens=record.subagent_tokens,
+            middleware_tokens=record.middleware_tokens,
+            stop_reason=record.stop_reason or (record.status if record.status in ("interrupted", "error") else None),
             error=record.error,
         )
 

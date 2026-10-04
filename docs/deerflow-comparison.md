@@ -40,7 +40,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ✅ slice 9: `RunService.stream` + run log |
 | Gateway / UI | FastAPI + Next.js frontend | ✅ slice 10: same routes and body fields, no UI |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
-| Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ⏭ slice 11 |
+| Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ✅ slice 11 |
 | PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ⏭ slice 12 |
 | Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ⏭ slice 13 |
 | Other safety | input sanitization, loop detection, finish-reason guards, read-before-write | ✂️ |
@@ -154,6 +154,24 @@ Different on purpose: the API is sync Python under async routes (`asyncio.to_thr
 checkpointer stays the simple `SqliteSaver`; DeerFlow is async end to end. The bridge is one
 in-memory event list per run (`ActiveRun`). Cancel acts between events: a model call already in flight
 finishes first.
+
+## Token usage + budget (slice 11): what we kept
+
+From `token_budget_middleware.py` and `token_usage_middleware.py`: per-run scope keyed by `run_id`; a limit on total,
+input or output tokens (same config names and validation: `max_tokens >= 1000`, `warn_threshold <= hard_stop_threshold`);
+the soft warning is queued in `after_model` and delivered in `wrap_model_call` as a `HumanMessage(name="budget_warning")` on the
+NEXT request only, so tool-call/result pairs stay intact; the hard stop never raises, it strips tool calls from every provider
+surface (structured, raw `additional_kwargs`, content blocks) and appends `[TOKEN BUDGET EXCEEDED]`; the run records
+`stop_reason=token_capped`; run rows store input/output/total tokens, `llm_call_count`, lead/subagent/middleware split and
+tokens by model; `GET /threads/{id}/token-usage` aggregates them.
+
+**Different on purpose:** DeerFlow measures by summing `usage_metadata` over AI messages and folds subagent usage into the
+message that dispatched it (`SubagentTokenCollector` + a merge step in `TokenUsageMiddleware`). We count with one callback
+(`UsageCallback`) on the run config. LangChain callbacks flow into nested agents, so the lead agent, subagents and
+middleware model calls are all seen by one counter, tagged by caller, with no message surgery. Consequences: tokens from
+model calls outside a run (memory extraction in its timer thread) are not counted, and the budget only works under
+`RunService`. A hard stop on a message that already has no tool calls leaves the answer untouched (DeerFlow appends the
+notice anyway). We drop per-step attribution metadata for the UI, the `context_usage` block, and cache-token accounting.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

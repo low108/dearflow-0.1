@@ -7,15 +7,17 @@ from collections.abc import Iterable
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from langchain_core.language_models import BaseChatModel
 
-from dearflow.config import ContextConfig, SubagentsConfig
+from dearflow.config import ContextConfig, SubagentsConfig, TokenBudgetConfig
 from dearflow.middlewares.clarification import ClarificationMiddleware
 from dearflow.middlewares.dynamic_context import Clock, DynamicContextMiddleware, make_clock
 from dearflow.memory import MemoryManager
 from dearflow.middlewares.memory import MemoryMiddleware
 from dearflow.middlewares.subagent_limit import SubagentLimitMiddleware
+from dearflow.middlewares.token_budget import TokenBudgetMiddleware
 from dearflow.middlewares.title import TitleMiddleware
 from dearflow.middlewares.todo import TodoMiddleware
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
+from dearflow.usage import UsageRegistry
 
 
 class MiddlewareChain:
@@ -40,12 +42,14 @@ class MiddlewareChain:
         subagents: SubagentsConfig | None = None,
         memory: MemoryManager | None = None,
         inject_memory: bool = True,
+        token_budget: TokenBudgetConfig | None = None,
+        usage: UsageRegistry | None = None,
         clock: Clock | None = None,
     ) -> MiddlewareChain:
         """The standard DearFlow pipeline. Later slices add entries here.
 
         Order, outermost first:
-            tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> todos -> clarification
+            tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> token budget -> todos -> clarification
 
         Clarification is last on purpose: `after_model` hooks run in reverse
         order, so it sees the model's answer first and can strip sibling tool
@@ -78,6 +82,8 @@ class MiddlewareChain:
                 )
         if subagents is not None:
             chain.add(SubagentLimitMiddleware(subagents.max_concurrent, subagents.max_total))
+        if token_budget is not None and token_budget.enabled and usage is not None:
+            chain.add(TokenBudgetMiddleware(token_budget, usage))
         if plan_mode:
             chain.add(TodoMiddleware())
         chain.add(ClarificationMiddleware())

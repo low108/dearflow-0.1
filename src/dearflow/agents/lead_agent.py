@@ -13,12 +13,13 @@ from langgraph.graph.state import CompiledStateGraph
 from dearflow.config import AppConfig
 from dearflow.mcp import McpToolLoader
 from dearflow.memory import FactExtractor, MemoryManager, MemoryStore
-from dearflow.middlewares import MiddlewareChain
+from dearflow.middlewares import MiddlewareChain, TokenBudgetMiddleware
 from dearflow.models import ModelFactory
 from dearflow.prompts import PromptBuilder
 from dearflow.skills import SkillCatalog, create_load_skill_tool
 from dearflow.subagents import SubagentExecutor, SubagentRegistry
 from dearflow.tools import ToolRegistry, ask_clarification, create_task_tool
+from dearflow.usage import UsageRegistry
 
 
 class ThreadState(AgentState):
@@ -43,6 +44,7 @@ class LeadAgent:
 
     graph: CompiledStateGraph
     model_name: str
+    usage: UsageRegistry  # per-run token counters; `RunService` opens one for each run
 
 
 class LeadAgentFactory:
@@ -74,6 +76,7 @@ class LeadAgentFactory:
         self._middleware_chain = middleware_chain  # None = build the default per run
         self._checkpointer = checkpointer
         self._memory: MemoryManager | None = None  # built on first use
+        self.usage = UsageRegistry()  # shared by every agent this factory builds
         self._mcp = McpToolLoader(app_config.mcp)  # connects to servers on first build()
 
     def build(self, run_config: RunnableConfig | None = None) -> LeadAgent:
@@ -89,7 +92,12 @@ class LeadAgentFactory:
         registry = None
         if subagents_on:
             registry = SubagentRegistry.from_config(self._app_config.subagents)
-            executor = SubagentExecutor(tools, default_model=model, model_resolver=self._create_model)
+            executor = SubagentExecutor(
+                tools,
+                default_model=model,
+                model_resolver=self._create_model,
+                extra_middleware=self._subagent_middleware(),
+            )
             tools = [*tools, create_task_tool(executor, registry)]
 
         subagent_config = self._app_config.subagents
@@ -101,6 +109,8 @@ class LeadAgentFactory:
             subagents=subagent_config if subagents_on else None,
             memory=self.memory,
             inject_memory=self._app_config.memory.injection_enabled,
+            token_budget=self._app_config.token_budget,
+            usage=self.usage,
         )
 
         prompt = PromptBuilder(
@@ -120,7 +130,7 @@ class LeadAgentFactory:
             context_schema=dict,
             checkpointer=self._checkpointer,
         )
-        return LeadAgent(graph=graph, model_name=model_name)
+        return LeadAgent(graph=graph, model_name=model_name, usage=self.usage)
 
     @property
     def memory(self) -> MemoryManager | None:
@@ -143,6 +153,11 @@ class LeadAgentFactory:
         """Save pending memory updates now (call before exiting)."""
         if self._memory is not None:
             self._memory.flush()
+
+    def _subagent_middleware(self) -> list:
+        """Subagents share the run's token budget: they stop when the whole run is over."""
+        budget = self._app_config.token_budget
+        return [TokenBudgetMiddleware(budget, self.usage)] if budget.enabled else []
 
     def _create_model(self, alias: str):
         return self._model_factory.create(self._app_config.resolve_model(alias))

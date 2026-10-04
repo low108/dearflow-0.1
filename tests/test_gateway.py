@@ -165,7 +165,7 @@ def test_stream_endpoint_sends_sse_with_content_location(make_client):
 
     events = parse_sse(text)
     assert content_type.startswith("text/event-stream")
-    assert [e["event"] for e in events][0] == "metadata" and events[-1] == {"event": "end", "data": {"status": "success"}, "id": events[-1]["id"]}
+    assert [e["event"] for e in events][0] == "metadata" and events[-1]["event"] == "end" and events[-1]["data"]["status"] == "success"
     assert location == f"/api/threads/t1/runs/{events[0]['data']['run_id']}"
     assert any(e["event"] == "messages" and e["data"]["message"]["content"] == "Hello there" for e in events)
 
@@ -245,7 +245,7 @@ def test_join_replays_from_the_start_and_outlives_memory(make_client):
     run = forgetful.post("/api/threads/t1/runs/wait", json=body()) and forgetful.get("/api/threads/t1/runs").json()[0]
     with forgetful.stream("GET", f"/api/threads/t1/runs/{run['run_id']}/join") as response:
         replay = parse_sse("".join(response.iter_text()))
-    assert replay[0]["event"] == "metadata" and replay[-1]["data"] == {"status": "success"}  # from the run log
+    assert replay[0]["event"] == "metadata" and replay[-1]["data"]["status"] == "success"  # from the run log
     assert forgetful.get("/api/threads/t1/runs/nope/join").status_code == 404
 
 

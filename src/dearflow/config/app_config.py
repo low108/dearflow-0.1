@@ -172,6 +172,29 @@ class GatewayConfig(_Config):
     retain_seconds: float = Field(default=120, ge=0)  # how long a finished run stays joinable in memory
 
 
+class TokenUsageConfig(_Config):
+    """Count tokens per run and save the totals with the run record."""
+
+    enabled: bool = True
+
+
+class TokenBudgetConfig(_Config):
+    """A per-run token limit (same fields as DeerFlow's). Off by default."""
+
+    enabled: bool = False
+    max_tokens: int = Field(default=200_000, ge=1000)  # input + output, all agents in the run
+    max_input_tokens: int | None = Field(default=None, ge=1)
+    max_output_tokens: int | None = Field(default=None, ge=1)
+    warn_threshold: float = Field(default=0.8, ge=0, le=1)  # fraction at which the model is told to wrap up
+    hard_stop_threshold: float = Field(default=1.0, ge=0, le=1)  # fraction at which tool calls are removed
+
+    @model_validator(mode="after")
+    def _hard_stop_not_before_warning(self) -> TokenBudgetConfig:
+        if self.hard_stop_threshold < self.warn_threshold:
+            raise ValueError("hard_stop_threshold must be >= warn_threshold")
+        return self
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -190,12 +213,20 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    token_usage: TokenUsageConfig = Field(default_factory=TokenUsageConfig)
+    token_budget: TokenBudgetConfig = Field(default_factory=TokenBudgetConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode
+
+    @model_validator(mode="after")
+    def _budget_needs_usage_counting(self) -> AppConfig:
+        if self.token_budget.enabled and not self.token_usage.enabled:
+            raise ValueError("token_budget needs token_usage.enabled: the budget is measured from the usage counter")
+        return self
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> AppConfig:

@@ -36,6 +36,21 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Token counting is on by default: every model call of a run (lead agent, subagents,
+# title/summary) is added up and saved with the run record.
+token_usage:
+  enabled: true
+
+# A per-run token limit. At warn_threshold the model is told to wrap up; at
+# hard_stop_threshold its tool calls are removed so it must answer. Subagents share it.
+token_budget:
+  enabled: false
+  max_tokens: 200000       # input + output
+  max_input_tokens: null   # optional separate caps
+  max_output_tokens: null
+  warn_threshold: 0.8
+  hard_stop_threshold: 1.0
+
 # HTTP API: `dearflow-gateway` (also `--host`, `--port`). Set api_key before exposing it.
 gateway:
   host: 127.0.0.1

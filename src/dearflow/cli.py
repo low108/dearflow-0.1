@@ -39,7 +39,7 @@ def run_chat(
     persistence = Persistence.from_config(app_config.persistence)
     factory = LeadAgentFactory(app_config, model_factory=model_factory, checkpointer=persistence.checkpointer)
     agent = factory.build({"configurable": {"model_name": model_name}})
-    service = RunService(agent, persistence)
+    service = RunService(agent, persistence, track_usage=app_config.token_usage.enabled)
 
     try:
         write(f"DearFlow CLI — model: {agent.model_name}")
@@ -66,7 +66,9 @@ def _stdout(text: str) -> None:
 
 
 def _plain_turn(service: RunService, message: str, thread_id: str, user_id: str, write, emit) -> None:
-    write(f"DearFlow: {service.invoke(message, thread_id=thread_id, user_id=user_id).text}")
+    result = service.invoke(message, thread_id=thread_id, user_id=user_id)
+    write(f"DearFlow: {result.text}")
+    _show_usage(result.usage, lambda text: write(f"  {text}"))
 
 
 def _stream_turn(service: RunService, message: str, thread_id: str, user_id: str, write, emit) -> None:
@@ -102,8 +104,18 @@ def _stream_turn(service: RunService, message: str, thread_id: str, user_id: str
             note(f"⇢ subagent {data['subagent_type']}: {data.get('description') or 'working'}")
         elif event.event == "error":
             note(f"error: {data['message']}")
+        elif event.event == "end":
+            _show_usage(data.get("usage") or {}, note)
     if started:
         emit("\n")
+
+
+def _show_usage(usage: dict, note) -> None:
+    """One line about the bill, only when the model reported token counts."""
+    if usage.get("total_tokens"):
+        note(f"tokens: {usage['input_tokens']:,} in / {usage['output_tokens']:,} out")
+    if usage.get("stop_reason") == "token_capped":
+        note("stopped early: token budget reached")
 
 
 def _tool_calls(update: dict) -> list[dict]:

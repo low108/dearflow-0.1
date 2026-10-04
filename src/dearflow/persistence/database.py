@@ -33,6 +33,15 @@ CREATE TABLE IF NOT EXISTS runs (
     first_human_message TEXT,
     last_ai_message     TEXT,
     message_count       INTEGER NOT NULL DEFAULT 0,
+    stop_reason         TEXT,                             -- token_capped | NULL
+    total_input_tokens  INTEGER NOT NULL DEFAULT 0,
+    total_output_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens        INTEGER NOT NULL DEFAULT 0,
+    llm_call_count      INTEGER NOT NULL DEFAULT 0,
+    lead_agent_tokens   INTEGER NOT NULL DEFAULT 0,
+    subagent_tokens     INTEGER NOT NULL DEFAULT 0,
+    middleware_tokens   INTEGER NOT NULL DEFAULT 0,
+    token_usage_by_model TEXT NOT NULL DEFAULT '{}',  -- JSON: model -> tokens
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
@@ -72,12 +81,32 @@ class Database:
         self._conn.executescript(_SCHEMA)
         self._add_missing_columns()
 
+    # Columns added after the first release: (table, column, definition). Old databases get them on open.
+    _LATER_COLUMNS = (
+        ("threads", "metadata", "TEXT NOT NULL DEFAULT '{}'"),
+        ("runs", "stop_reason", "TEXT"),
+        ("runs", "token_usage_by_model", "TEXT NOT NULL DEFAULT '{}'"),
+        *(
+            ("runs", name, "INTEGER NOT NULL DEFAULT 0")
+            for name in (
+                "total_input_tokens",
+                "total_output_tokens",
+                "total_tokens",
+                "llm_call_count",
+                "lead_agent_tokens",
+                "subagent_tokens",
+                "middleware_tokens",
+            )
+        ),
+    )
+
     def _add_missing_columns(self) -> None:
-        """Tiny migration: databases made by older versions get columns added later."""
-        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(threads)")}
-        if "metadata" not in columns:
-            self._conn.execute("ALTER TABLE threads ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
-            self._conn.commit()
+        """Tiny migration: add any column a database created by an older version lacks."""
+        for table, column, definition in self._LATER_COLUMNS:
+            existing = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
+            if column not in existing:
+                self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        self._conn.commit()
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
         """Run one statement, commit, and return any rows."""

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import AnyMessage, HumanMessage, RemoveMessage
+from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage
 
 from dearflow.text import text_of  # noqa: F401  (re-exported for middleware)
 
@@ -48,3 +48,24 @@ def insert_before_last_user(last: HumanMessage, injected: HumanMessage) -> list[
     suffix = "__user"
     new_id = last.id if last.id.endswith(suffix) else f"{last.id}{suffix}"
     return [RemoveMessage(id=last.id), injected, last.model_copy(update={"id": new_id})]
+
+
+_TOOL_BLOCK_TYPES = frozenset({"tool_use", "tool_call", "function_call"})
+
+
+def without_tool_calls(message: AIMessage, note: str) -> AIMessage:
+    """Copy of an AI message that calls no tools, with `note` appended to its text.
+
+    Tool calls can live in several places depending on the provider: the structured
+    `tool_calls`, the raw `additional_kwargs`, or blocks inside list content. All are
+    removed, so no provider path can bring them back.
+    """
+    extra = {k: v for k, v in message.additional_kwargs.items() if k not in ("tool_calls", "function_call")}
+    if isinstance(message.content, list):
+        kept = [b for b in message.content if not (isinstance(b, dict) and b.get("type") in _TOOL_BLOCK_TYPES)]
+        content: Any = [*kept, {"type": "text", "text": f"\n\n{note}"}]
+    else:
+        content = f"{message.content}\n\n{note}".strip()
+    return message.model_copy(
+        update={"tool_calls": [], "invalid_tool_calls": [], "additional_kwargs": extra, "content": content}
+    )
