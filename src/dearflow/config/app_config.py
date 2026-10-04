@@ -8,10 +8,13 @@ configured?".
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
+from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 DEFAULT_SYSTEM_PROMPT = "You are DearFlow, a helpful general-purpose agent."
 
@@ -104,6 +107,53 @@ class MemoryConfig(_Config):
     model: str | None = None  # alias for the extraction model; None = default_model
 
 
+_ENV_REFERENCE = re.compile(r"\$(\w+)|\$\{(\w+)\}")
+
+
+def expand_env(value: str) -> str:
+    """Replace `$NAME` / `${NAME}` with the environment variable. Unset -> error,
+    so a missing API key fails at startup, not as a mysterious 401 later."""
+
+    def lookup(match: re.Match) -> str:
+        name = match.group(1) or match.group(2)
+        if name not in os.environ:
+            raise ValueError(f"environment variable {name} is not set")
+        return os.environ[name]
+
+    return _ENV_REFERENCE.sub(lookup, value)
+
+
+class McpServerConfig(_Config):
+    """One MCP server (an external process or URL that offers tools)."""
+
+    type: Literal["stdio", "http", "sse"] = "stdio"
+    enabled: bool = True
+    command: str | None = None  # stdio
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    cwd: str | None = None
+    url: str | None = None  # http / sse
+    headers: dict[str, str] = Field(default_factory=dict)
+    tool_name_prefix: bool = True  # `github` server's `search` tool becomes `github_search`
+    description: str = ""
+
+    @model_validator(mode="after")
+    def _needs_its_transport_fields(self) -> McpServerConfig:
+        if self.type == "stdio" and not self.command:
+            raise ValueError("stdio servers need `command`")
+        if self.type != "stdio" and not self.url:
+            raise ValueError(f"{self.type} servers need `url`")
+        return self
+
+
+class McpConfig(_Config):
+    """Tools from external MCP servers. Off by default."""
+
+    enabled: bool = False
+    load_timeout_seconds: float = Field(default=60, gt=0)  # per server, at startup
+    servers: dict[str, McpServerConfig] = Field(default_factory=dict)
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -122,6 +172,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    mcp: McpConfig = Field(default_factory=McpConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode

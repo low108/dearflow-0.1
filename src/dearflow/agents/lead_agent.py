@@ -11,6 +11,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from dearflow.config import AppConfig
+from dearflow.mcp import McpToolLoader
 from dearflow.memory import FactExtractor, MemoryManager, MemoryStore
 from dearflow.middlewares import MiddlewareChain
 from dearflow.models import ModelFactory
@@ -50,7 +51,7 @@ class LeadAgentFactory:
     Flow of `build()`:
         run config -> pick model name -> ModelFactory -> model
                    -> SkillCatalog    -> PromptBuilder -> system prompt
-                   -> ToolRegistry    -> tools (+ load_skill when skills exist)
+                   -> ToolRegistry    -> tools (+ load_skill when skills exist) + MCP server tools
                    -> MiddlewareChain -> middleware (context + clarification; todo guard in plan mode)
                    -> optional: SubagentExecutor -> `task` tool + limit middleware + prompt section
                    -> create_agent(...) -> compiled graph
@@ -73,6 +74,7 @@ class LeadAgentFactory:
         self._middleware_chain = middleware_chain  # None = build the default per run
         self._checkpointer = checkpointer
         self._memory: MemoryManager | None = None  # built on first use
+        self._mcp = McpToolLoader(app_config.mcp)  # connects to servers on first build()
 
     def build(self, run_config: RunnableConfig | None = None) -> LeadAgent:
         """Create the agent. `configurable.model_name` overrides the default model."""
@@ -83,7 +85,7 @@ class LeadAgentFactory:
         plan_mode = bool(configurable.get("is_plan_mode", self._app_config.plan_mode))
         subagents_on = bool(configurable.get("subagent_enabled", self._app_config.subagents.enabled))
         model = self._model_factory.create(model_name)
-        tools = self._tool_registry.get_tools()
+        tools = ToolRegistry.deduplicate([*self._tool_registry.get_tools(), *self._mcp.tools()])
         registry = None
         if subagents_on:
             registry = SubagentRegistry.from_config(self._app_config.subagents)

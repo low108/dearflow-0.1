@@ -34,7 +34,7 @@ class ToolRegistry:
             if cfg.enabled and (allowed is None or cfg.group in allowed)
         ]
         # Extra tools are not group-filtered: they are added by code, not config.
-        return self._deduplicate([*candidates, *self._extra_tools])
+        return self.deduplicate([*candidates, *self._extra_tools])
 
     @staticmethod
     def _load(tool_config: ToolConfig) -> BaseTool:
@@ -51,7 +51,7 @@ class ToolRegistry:
         return loaded
 
     @staticmethod
-    def _deduplicate(tools: list[BaseTool]) -> list[BaseTool]:
+    def deduplicate(tools: list[BaseTool]) -> list[BaseTool]:
         unique: dict[str, BaseTool] = {}
         for tool in tools:
             if tool.name in unique:

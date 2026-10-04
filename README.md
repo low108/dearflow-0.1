@@ -38,6 +38,7 @@ config.yaml ──► AppConfig (pydantic)
 | `FactExtractor` | asks a model for facts (JSON), tolerates fences / `<think>` / bad items |
 | `MemoryManager` | debounced background updates: a burst of turns costs one extraction |
 | `MemoryMiddleware` | before a run: hidden `<memory>` message; after it: queue the exchange |
+| `McpServerConfig` / `McpToolLoader` | connects to MCP servers (stdio/http/sse), one at a time; a broken server is skipped. Tools are prefixed `server_tool` |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -68,6 +69,15 @@ sees a `task` tool. A subagent gets only the task text, its own system prompt an
 filtered copy of the lead agent's tools (never `task`, never `ask_clarification`), and
 returns only its final message, so the lead's context stays small. How this differs
 from real DeerFlow is in `docs/deerflow-comparison.md`.
+
+## MCP
+
+MCP servers are external programs or URLs that offer tools (GitHub, databases, search).
+List them under `mcp.servers` and set `mcp.enabled: true`. Their tools join the
+lead agent's tool list, and subagents inherit them like any other tool. Secrets stay
+out of the YAML with `$ENV_VAR`. A missing variable or an unreachable server skips
+that server with a warning; the rest still load. Each tool call opens a short session,
+which is simple and safe (DeerFlow pools persistent sessions for speed).
 
 ## Memory
 
@@ -103,7 +113,7 @@ uv run pytest -q
 4. ✅ Context middleware (date, summarization, title)
 5. ✅ Subagents (`task` tool)
 6. ✅ Memory
-7. MCP
+7. ✅ MCP
 8. Persistence: SQLite checkpointer + thread/run tables
 9. Streaming: stream modes, run events
 10. FastAPI gateway (SSE endpoint)

@@ -36,6 +36,24 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Tools from external MCP servers (https://modelcontextprotocol.io). Each server
+# is loaded independently at startup; one that fails is logged and skipped.
+# `$NAME` in command/args/env/url/headers is read from the environment.
+mcp:
+  enabled: false
+  load_timeout_seconds: 60
+  servers: {}
+  #  github:
+  #    type: stdio                  # stdio | http | sse
+  #    command: npx
+  #    args: ["-y", "@modelcontextprotocol/server-github"]
+  #    env: {GITHUB_TOKEN: $GITHUB_TOKEN}
+  #    tool_name_prefix: true       # tools appear as github_<tool>
+  #  docs:
+  #    type: http
+  #    url: https://example.com/mcp
+  #    headers: {Authorization: "Bearer $DOCS_TOKEN"}
+
 # Long-term memory: facts about the user, learned in the background after each
 # turn and shown to the model at the start of the next one. Off by default
 # (also: `dearflow --memory --user-id ann`).

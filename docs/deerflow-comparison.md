@@ -27,7 +27,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Lead agent | `make_lead_agent`, runtime flags via `configurable` | ✅ `LeadAgentFactory.build(run_config)` |
 | Config | big `AppConfig`, env substitution, hot reload | ✅ small pydantic `AppConfig`, `extra=forbid` |
 | Models | many providers, thinking/vision flags, retries | ✅ one provider via `init_chat_model` |
-| Tools | config groups + MCP + deferred `tool_search` | ✅ config tools + builtins; ⏭ MCP; ✂️ deferred tool loading |
+| Tools | config groups + MCP + deferred `tool_search` | ✅ config tools + builtins + MCP; ✂️ deferred tool loading |
 | Skills | activation middleware, allowed-tools policy, skill package review | ✅ `load_skill` + name/description index; ✂️ policy/authorization |
 | Clarification | middleware intercepts `ask_clarification`, ends run | ✅ same |
 | Todos | `TodoMiddleware` with context-loss recovery | ✅ guard with reminder budget; ✂️ recovery |
@@ -90,6 +90,20 @@ We drop: swappable backends (DeerMem, mem0, OpenViking, Honcho), summaries (`use
 staleness review and consolidation, pre-screen and signal classifiers, agent-scoped memory,
 model-facing tools (`memory_search`/`add`/`update`/`delete`), relevance ranking by query, and
 the PII-redacted queue (comes with slice 12). Facts are ranked by confidence then recency and cut to a token budget.
+
+## MCP (slice 7): what we kept
+
+DeerFlow (`mcp/`, ~6k lines) uses `langchain-mcp-adapters`' `MultiServerMCPClient`, reads
+`extensions_config.json` (`mcpServers`: `stdio` / `http` / `sse`, `$ENV` values, `enabled`,
+`tool_name_prefix` default on), loads tools lazily, caches them, and skips a server that fails.
+We keep exactly that, with the config inside `config.yaml`, plus one convenience: sync
+`graph.invoke` works, because MCP tools are async-only and we wrap them.
+
+We drop: the persistent stdio session pool (loop-aware LRU, disconnect recovery), hot reload
+by file signature, OAuth and per-user/per-request credentials, interceptors, routing hints,
+long-running MCP tasks (SQL-backed), stdio file-path translation, and the HTTP-boundary launch
+policy. If you expose config editing over an API later, add that launch screening: a stdio
+`command` is arbitrary code execution.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

@@ -3,6 +3,8 @@ from dearflow.config.app_config import (
     AppConfig,
     ContextConfig,
     CustomSubagentConfig,
+    McpConfig,
+    McpServerConfig,
     MemoryConfig,
     ModelConfig,
     SkillsConfig,
@@ -10,6 +12,7 @@ from dearflow.config.app_config import (
     SummarizationConfig,
     TitleConfig,
     ToolConfig,
+    expand_env,
 )
 
 __all__ = [
@@ -17,6 +20,8 @@ __all__ = [
     "AppConfig",
     "ContextConfig",
     "CustomSubagentConfig",
+    "McpConfig",
+    "McpServerConfig",
     "MemoryConfig",
     "ModelConfig",
     "SkillsConfig",
@@ -24,4 +29,5 @@ __all__ = [
     "SummarizationConfig",
     "TitleConfig",
     "ToolConfig",
+    "expand_env",
 ]
