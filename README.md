@@ -30,6 +30,10 @@ config.yaml ──► AppConfig (pydantic)
 | `DynamicContextMiddleware` | injects the current date as a hidden message (keeps the system prompt cacheable) |
 | `SummarizationMiddleware` | LangChain's; compresses old messages past a token threshold |
 | `TitleMiddleware` | sets `state["title"]` after the first exchange |
+| `SubagentSpec` / `SubagentRegistry` | a subagent type (prompt, tools, model, limits); built-ins + `subagents.custom_agents` |
+| `SubagentExecutor` | builds a fresh agent per task, runs it, returns its last message (turn + time limits) |
+| `task` tool | the lead agent delegates: `task(prompt, subagent_type)`; several calls per response run in parallel |
+| `SubagentLimitMiddleware` | enforces max calls per response / per user message in code |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -52,6 +56,14 @@ Full step-by-step instructions...
 Only `name: description` lines go into the system prompt. When a task matches,
 the model calls `load_skill("code-review")` and receives the full body
 (progressive disclosure keeps the context small). See `skills/public/`.
+
+## Subagents
+
+Turn on with `subagents.enabled: true` or `dearflow --subagents`. The lead agent then
+sees a `task` tool. A subagent gets only the task text, its own system prompt and a
+filtered copy of the lead agent's tools (never `task`, never `ask_clarification`), and
+returns only its final message, so the lead's context stays small. How this differs
+from real DeerFlow is in `docs/deerflow-comparison.md`.
 
 ## Run
 
@@ -76,7 +88,7 @@ uv run pytest -q
 2. ✅ Prompt + skills
 3. ✅ Core tools (clarification, todos; web search deferred)
 4. ✅ Context middleware (date, summarization, title)
-5. Subagents (`task` tool)
+5. ✅ Subagents (`task` tool)
 6. Memory
 7. MCP
 8. Persistence + streaming

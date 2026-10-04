@@ -7,9 +7,10 @@ from collections.abc import Iterable
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from langchain_core.language_models import BaseChatModel
 
-from dearflow.config import ContextConfig
+from dearflow.config import ContextConfig, SubagentsConfig
 from dearflow.middlewares.clarification import ClarificationMiddleware
 from dearflow.middlewares.dynamic_context import Clock, DynamicContextMiddleware, make_clock
+from dearflow.middlewares.subagent_limit import SubagentLimitMiddleware
 from dearflow.middlewares.title import TitleMiddleware
 from dearflow.middlewares.todo import TodoMiddleware
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
@@ -34,12 +35,13 @@ class MiddlewareChain:
         context: ContextConfig | None = None,
         model: BaseChatModel | None = None,
         summary_model: BaseChatModel | None = None,
+        subagents: SubagentsConfig | None = None,
         clock: Clock | None = None,
     ) -> MiddlewareChain:
         """The standard DearFlow pipeline. Later slices add entries here.
 
         Order, outermost first:
-            tool errors -> date reminder -> summarization -> title -> todos -> clarification
+            tool errors -> date reminder -> summarization -> title -> subagent limit -> todos -> clarification
 
         Clarification is last on purpose: `after_model` hooks run in reverse
         order, so it sees the model's answer first and can strip sibling tool
@@ -68,6 +70,8 @@ class MiddlewareChain:
                         max_words=context.title.max_words,
                     )
                 )
+        if subagents is not None:
+            chain.add(SubagentLimitMiddleware(subagents.max_concurrent, subagents.max_total))
         if plan_mode:
             chain.add(TodoMiddleware())
         chain.add(ClarificationMiddleware())

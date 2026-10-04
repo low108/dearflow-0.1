@@ -68,6 +68,29 @@ class TitleConfig(_Config):
     max_words: int = Field(default=6, gt=0)
 
 
+class CustomSubagentConfig(_Config):
+    """A subagent type defined in YAML. Unset fields fall back to `SubagentsConfig`."""
+
+    description: str = Field(min_length=1)  # shown to the lead agent
+    system_prompt: str = Field(min_length=1)
+    tools: list[str] | None = None  # allowlist; None = all of the lead agent's tools
+    disallowed_tools: list[str] | None = None  # None = ["task", "ask_clarification"]
+    model: str = "inherit"  # alias/id, or "inherit" = the lead agent's model
+    max_turns: int | None = Field(default=None, gt=0)
+    timeout_seconds: int | None = Field(default=None, gt=0)
+
+
+class SubagentsConfig(_Config):
+    """Delegation through the `task` tool. Off by default; see `--subagents`."""
+
+    enabled: bool = False
+    max_concurrent: int = Field(default=3, ge=1, le=16)  # task calls per model response
+    max_total: int = Field(default=6, ge=1, le=50)  # task calls per user message
+    max_turns: int = Field(default=25, gt=0)
+    timeout_seconds: int = Field(default=300, gt=0)
+    custom_agents: dict[str, CustomSubagentConfig] = Field(default_factory=dict)
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -85,6 +108,7 @@ class AppConfig(_Config):
     models: dict[str, ModelConfig] = Field(default_factory=dict)
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode
 

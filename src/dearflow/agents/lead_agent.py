@@ -15,7 +15,8 @@ from dearflow.middlewares import MiddlewareChain
 from dearflow.models import ModelFactory
 from dearflow.prompts import PromptBuilder
 from dearflow.skills import SkillCatalog, create_load_skill_tool
-from dearflow.tools import ToolRegistry, ask_clarification
+from dearflow.subagents import SubagentExecutor, SubagentRegistry
+from dearflow.tools import ToolRegistry, ask_clarification, create_task_tool
 
 
 class ThreadState(AgentState):
@@ -50,6 +51,7 @@ class LeadAgentFactory:
                    -> SkillCatalog    -> PromptBuilder -> system prompt
                    -> ToolRegistry    -> tools (+ load_skill when skills exist)
                    -> MiddlewareChain -> middleware (context + clarification; todo guard in plan mode)
+                   -> optional: SubagentExecutor -> `task` tool + limit middleware + prompt section
                    -> create_agent(...) -> compiled graph
     """
 
@@ -77,24 +79,45 @@ class LeadAgentFactory:
         model_name = self._app_config.resolve_model(requested if isinstance(requested, str) else None)
 
         plan_mode = bool(configurable.get("is_plan_mode", self._app_config.plan_mode))
+        subagents_on = bool(configurable.get("subagent_enabled", self._app_config.subagents.enabled))
         model = self._model_factory.create(model_name)
+        tools = self._tool_registry.get_tools()
+        registry = None
+        if subagents_on:
+            registry = SubagentRegistry.from_config(self._app_config.subagents)
+            executor = SubagentExecutor(tools, default_model=model, model_resolver=self._create_model)
+            tools = [*tools, create_task_tool(executor, registry)]
+
+        subagent_config = self._app_config.subagents
         chain = self._middleware_chain or MiddlewareChain.default(
             plan_mode=plan_mode,
             context=self._app_config.context,
             model=model,
             summary_model=self._summary_model(),
+            subagents=subagent_config if subagents_on else None,
         )
+
+        prompt = PromptBuilder(
+            self._app_config.system_prompt,
+            self._skills,
+            subagents=registry,
+            max_concurrent=subagent_config.max_concurrent,
+            max_total=subagent_config.max_total,
+        ).build()
 
         graph = create_agent(
             model=model,
-            tools=self._tool_registry.get_tools(),
+            tools=tools,
             middleware=chain.build(),
-            system_prompt=PromptBuilder(self._app_config.system_prompt, self._skills).build(),
+            system_prompt=prompt,
             state_schema=ThreadState,
             context_schema=dict,
             checkpointer=self._checkpointer,
         )
         return LeadAgent(graph=graph, model_name=model_name)
+
+    def _create_model(self, alias: str):
+        return self._model_factory.create(self._app_config.resolve_model(alias))
 
     def _summary_model(self):
         """A separate (usually cheaper) model for summarization, if configured."""

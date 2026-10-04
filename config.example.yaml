@@ -36,5 +36,20 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Delegation: the lead agent gets a `task` tool that runs a subagent in a fresh
+# context. Off by default (also: `dearflow --subagents`).
+subagents:
+  enabled: false
+  max_concurrent: 3       # task calls per model response (run in parallel)
+  max_total: 6            # task calls per user message
+  max_turns: 25
+  timeout_seconds: 300
+  custom_agents: {}
+  #  reviewer:
+  #    description: Reviews a draft and lists problems.
+  #    system_prompt: You review text critically and report concrete issues.
+  #    tools: []          # allowlist; omit = all of the lead agent's tools
+  #    model: inherit     # or a model alias such as `reasoning`
+
 # Plan mode adds the write_todos task list (also: `dearflow --plan`).
 plan_mode: false

@@ -62,6 +62,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--thread-id", default="cli", help="Conversation checkpoint thread ID.")
     parser.add_argument("--system-prompt", help="Override the configured system prompt.")
     parser.add_argument("--plan", action="store_true", help="Plan mode: enable the write_todos task list.")
+    parser.add_argument("--subagents", action="store_true", help="Enable the `task` tool for delegating to subagents.")
     return parser
 
 
@@ -73,6 +74,9 @@ def main(argv: Sequence[str] | None = None, *, chat_runner: ChatRunner = run_cha
 
     if args.plan:
         app_config = app_config.model_copy(update={"plan_mode": True})
+
+    if args.subagents:
+        app_config = app_config.model_copy(update={"subagents": app_config.subagents.model_copy(update={"enabled": True})})
 
     chat_runner(app_config=app_config, thread_id=args.thread_id, model_name=args.model)
     return 0
