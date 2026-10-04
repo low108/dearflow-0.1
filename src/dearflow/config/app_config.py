@@ -44,6 +44,13 @@ class ToolConfig(_Config):
         return value
 
 
+class SkillsConfig(_Config):
+    """Where to find skills (folders containing a SKILL.md)."""
+
+    enabled: bool = True
+    path: str = "skills"
+
+
 class AppConfig(_Config):
     """Root configuration object, usually loaded from `config.yaml`."""
 
@@ -51,6 +58,7 @@ class AppConfig(_Config):
     system_prompt: str = Field(default=DEFAULT_SYSTEM_PROMPT, min_length=1)
     models: dict[str, ModelConfig] = Field(default_factory=dict)
     tools: list[ToolConfig] = Field(default_factory=list)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> AppConfig:

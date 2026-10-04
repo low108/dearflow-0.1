@@ -17,3 +17,7 @@ tools:
   - name: calculator
     group: math
     use: dearflow.tools.builtins:calculator
+
+skills:
+  enabled: true
+  path: skills

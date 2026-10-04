@@ -5,7 +5,7 @@ architecture on LangChain/LangGraph. It keeps the model, tool, middleware,
 skills, memory, MCP, subagent, persistence and streaming concepts and
 intentionally excludes the sandbox (no shell, no virtual filesystem).
 
-## How it fits together (slice 1)
+## How it fits together
 
 ```
 config.yaml ──► AppConfig (pydantic)
@@ -22,12 +22,31 @@ config.yaml ──► AppConfig (pydantic)
 | `ModelFactory` | model id -> chat model (single provider) |
 | `ToolRegistry` | loads config tools + extra tools, filters by group, de-duplicates |
 | `MiddlewareChain` | the ordered middleware pipeline (`default()` shows it all) |
+| `Skill` / `SkillCatalog` | parse `skills/**/SKILL.md` (frontmatter + body) and index them by name |
+| `create_load_skill_tool` | `load_skill(name)` tool: the model pulls a skill's full text on demand |
+| `PromptBuilder` | builds the system prompt; lists skill names + descriptions only |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
 Every later feature plugs in through one of those seams: a new tool goes into
 `ToolRegistry`, new behaviour is a middleware in `MiddlewareChain`, new
 settings are a new section on `AppConfig`.
+
+## Skills
+
+A skill is a folder with a `SKILL.md`:
+
+```markdown
+---
+name: code-review
+description: Use when the user asks you to review code.
+---
+Full step-by-step instructions...
+```
+
+Only `name: description` lines go into the system prompt. When a task matches,
+the model calls `load_skill("code-review")` and receives the full body
+(progressive disclosure keeps the context small). See `skills/public/`.
 
 ## Run
 
@@ -49,7 +68,7 @@ uv run pytest -q
 ## Roadmap
 
 1. ✅ Base: typed config, factories, middleware chain
-2. Prompt + skills
+2. ✅ Prompt + skills
 3. Core tools (clarification, todos; web search deferred)
 4. Context middleware (date, summarization, title)
 5. Subagents (`task` tool)

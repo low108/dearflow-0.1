@@ -1,14 +1,24 @@
 """Shared test doubles."""
 
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
 from dearflow.models import ModelFactory
 
 
-class ToolCapableFakeModel(FakeMessagesListChatModel):
-    """Fake chat model that accepts bind_tools (needed when an agent has tools)."""
+@pytest.fixture(autouse=True)
+def _isolated_cwd(tmp_path, monkeypatch):
+    """Run every test in an empty directory so the repo's real skills/ never leak in."""
+    monkeypatch.chdir(tmp_path)
 
-    def bind_tools(self, _tools, *, tool_choice=None, **_kwargs):
+
+class ToolCapableFakeModel(FakeMessagesListChatModel):
+    """Fake chat model that accepts bind_tools and remembers which tools it got."""
+
+    bound_tool_names: list = []
+
+    def bind_tools(self, tools, *, tool_choice=None, **_kwargs):
+        self.bound_tool_names = [getattr(t, "name", str(t)) for t in tools]
         return self
 
 
