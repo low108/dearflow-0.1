@@ -37,7 +37,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Subagents | background executor, polling, batches, ledger, receipts, acceptance checks | ✅ `task` tool + registry + executor + limit middleware |
 | Memory | `MemoryMiddleware` + debounce queue + LLM updater; facts as Markdown files; pluggable backends | ✅ slice 6: same flow, one JSON file per user |
 | Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ✅ slice 8: SQLite, plain `sqlite3` |
-| Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ⏭ slice 9 |
+| Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ✅ slice 9: `RunService.stream` + run log |
 | Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 10 (FastAPI only) |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
 | Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ⏭ slice 11 |
@@ -116,6 +116,23 @@ file, written with plain `sqlite3` instead of SQLAlchemy, plus crash recovery at
 We drop: Postgres, migrations, ORM, multi-worker leases and cancel flags, idempotency keys, projects,
 `run_events` (comes back with streaming in slice 9), token columns (slice 11), per-user access checks
 (a thread records its owner; the gateway in slice 10 will enforce it), and async savers (slice 10).
+
+## Streaming (slice 9): what we kept
+
+DeerFlow's worker runs `agent.astream(input, stream_mode=[...])`, publishes every chunk to a
+`StreamBridge` keyed by run id, and an SSE endpoint subscribes. Modes are an allowlist
+(`messages-tuple` means LangGraph `messages`); unknown modes are rejected, never silently changed.
+Events are `metadata` first, `end` last, and the same frames go into a `run_events` table.
+We keep: the allowlist and alias, event names, SSE frame format (`event:` / `data:` / `id:`),
+`updates` always logged, and the persisted run log. Our producer and consumer are one generator
+instead of two sides of a bridge: `RunService.stream`.
+
+We drop: the bridge (memory and Redis), heartbeats, `Last-Event-ID` reconnect and gap detection
+(we offer `events(run_id, after_seq)` for catch-up), joining a running stream from another
+client, `debug`/`tasks`/`checkpoints` modes, subgraph streaming, cancel with rollback.
+
+Added for teaching: `custom` events from the `task` tool (`subagent.start` / `subagent.end`).
+That makes delegation visible, where DeerFlow emits task events from its background executor.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

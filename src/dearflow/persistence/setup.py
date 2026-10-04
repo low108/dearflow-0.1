@@ -11,6 +11,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from dearflow.config import PersistenceConfig
 from dearflow.persistence.database import MEMORY, Database
+from dearflow.persistence.events import RunEventStore
 from dearflow.persistence.runs import RunStore
 from dearflow.persistence.threads import ThreadStore
 
@@ -29,6 +30,7 @@ class Persistence:
     checkpointer: BaseCheckpointSaver
     threads: ThreadStore
     runs: RunStore
+    events: RunEventStore
     database: Database
 
     @classmethod
@@ -52,7 +54,7 @@ class Persistence:
         # A crash can leave runs "running" and threads "busy" forever; clear them at startup.
         for thread_id in runs.interrupt_unfinished():
             threads.set_status(thread_id, "idle")
-        return cls(saver, threads, runs, database)
+        return cls(saver, threads, runs, RunEventStore(database), database)
 
     def close(self) -> None:
         connection = getattr(self.checkpointer, "conn", None)

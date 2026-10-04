@@ -41,6 +41,9 @@ config.yaml ──► AppConfig (pydantic)
 | `McpServerConfig` / `McpToolLoader` | connects to MCP servers (stdio/http/sse), one at a time; a broken server is skipped. Tools are prefixed `server_tool` |
 | `Persistence` | the storage bundle: SQLite checkpointer (messages) + `ThreadStore` + `RunStore` (metadata); in-memory when off |
 | `RunService` | one run: claim the thread, record it, invoke the agent, record the outcome; rejects a second run on a busy thread |
+| `RunService.stream` | yields `StreamEvent`s while the agent runs: `metadata`, your chosen modes, `end`; abandoning it marks the run interrupted |
+| `normalize_modes` | allowlist of stream modes (`values`, `updates`, `messages`, `custom`); unknown modes are an error |
+| `RunEventStore` | the run log (`updates`, `custom`, errors, start/end) for replay |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -80,6 +83,24 @@ what you have. Two layers, like DeerFlow: LangGraph's checkpointer stores the me
 the `threads` table (owner, title, idle/busy) and `runs` table (status, error, preview)
 describe them. A crash leaves no stuck state: at startup, runs still marked `running`
 become `interrupted` and their threads are freed. Only one run per thread at a time.
+
+## Streaming
+
+The CLI prints answers as they are produced, with status lines for tool calls (`→ task`)
+and subagents (`⇢ subagent general-purpose: look up`); `--no-stream` waits for the full answer.
+In code:
+
+```python
+for event in service.stream("hi", thread_id="t1", modes=["messages", "custom"]):
+    print(event.event, event.data)      # metadata ... messages ... custom ... end
+    # event.sse() is the same event as a Server-Sent Events frame
+```
+
+Modes: `values` (full state each step), `updates` (what each node changed), `messages`
+(model output, as `{"message", "node"}`), `custom` (tool progress such as subagent start/end).
+Hidden middleware messages (date, memory) are not sent in `messages`. Every run also writes a
+log (`service.events(run_id)`) with `updates`, `custom`, errors and start/end, but not tokens or
+full snapshots.
 
 ## MCP
 
@@ -126,7 +147,7 @@ uv run pytest -q
 6. ✅ Memory
 7. ✅ MCP
 8. ✅ Persistence: SQLite checkpointer + thread/run tables
-9. Streaming: stream modes, run events
+9. ✅ Streaming: stream modes, run events
 10. FastAPI gateway (SSE endpoint)
 11. Token usage + token budget
 12. PII redaction

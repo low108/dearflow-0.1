@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool, StructuredTool
+from langgraph.config import get_stream_writer
 from pydantic import BaseModel, Field
 
 from dearflow.subagents import SubagentExecutor, SubagentRegistry, UnknownSubagentError
@@ -28,6 +29,14 @@ class TaskInput(BaseModel):
     description: str = Field(default="", description="A 3-5 word label for the job (for logs and UIs).")
 
 
+def _emit(payload: dict) -> None:
+    """Send a progress event to `custom` stream listeners. Harmless if nobody listens."""
+    try:
+        get_stream_writer()(payload)
+    except RuntimeError:  # called outside a graph run
+        pass
+
+
 def create_task_tool(executor: SubagentExecutor, registry: SubagentRegistry) -> BaseTool:
     """Build the `task` tool. Both sync and async callers are supported."""
 
@@ -36,14 +45,20 @@ def create_task_tool(executor: SubagentExecutor, registry: SubagentRegistry) -> 
             spec = registry.get(subagent_type)
         except UnknownSubagentError as exc:
             return f"Error: {exc}"
-        return executor.run(spec, prompt).render()
+        _emit({"type": "subagent.start", "subagent_type": spec.name, "description": description})
+        result = executor.run(spec, prompt)
+        _emit({"type": "subagent.end", "subagent_type": spec.name, "status": result.status.value})
+        return result.render()
 
     async def atask(prompt: str, subagent_type: str, description: str = "") -> str:
         try:
             spec = registry.get(subagent_type)
         except UnknownSubagentError as exc:
             return f"Error: {exc}"
-        return (await executor.arun(spec, prompt)).render()
+        _emit({"type": "subagent.start", "subagent_type": spec.name, "description": description})
+        result = await executor.arun(spec, prompt)
+        _emit({"type": "subagent.end", "subagent_type": spec.name, "status": result.status.value})
+        return result.render()
 
     return StructuredTool.from_function(
         func=task,

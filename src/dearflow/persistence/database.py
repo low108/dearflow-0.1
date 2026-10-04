@@ -36,6 +36,15 @@ CREATE TABLE IF NOT EXISTS runs (
     updated_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_runs_thread ON runs (thread_id, created_at);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    run_id     TEXT NOT NULL,
+    seq        INTEGER NOT NULL,
+    event      TEXT NOT NULL,
+    data       TEXT NOT NULL,     -- JSON
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, seq)
+);
 """
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 from collections.abc import Callable, Sequence
 
 from dearflow.agents import LeadAgentFactory
@@ -22,10 +23,15 @@ def run_chat(
     user_id: str = "default",
     model_name: str | None = None,
     model_factory: ModelFactory | None = None,
+    stream: bool = False,
     read: Callable[[str], str] = input,
     write: Callable[[str], None] = print,
+    emit: Callable[[str], None] | None = None,
 ) -> None:
     """Run a chat loop until the user types exit/quit.
+
+    With `stream=True` the answer is printed as it is produced (through `emit`,
+    which writes without a newline), along with tool and subagent activity.
 
     With `persistence.enabled`, the conversation is saved: start again with the
     same `--thread-id` and it continues where it stopped.
@@ -39,7 +45,8 @@ def run_chat(
         write(f"DearFlow CLI — model: {agent.model_name}")
         _show_resumed_thread(service, persistence, thread_id, write)
         write("Type 'exit' or 'quit' to stop.")
-        _chat_loop(service, thread_id, user_id, read, write)
+        turn = _stream_turn if stream else _plain_turn
+        _chat_loop(service, thread_id, user_id, read, write, emit or _stdout, turn)
     finally:
         factory.flush_memory()
         persistence.close()
@@ -53,7 +60,59 @@ def _show_resumed_thread(service: RunService, persistence: Persistence, thread_i
     write(f"Resuming thread {thread_id!r}{f' — {record.title}' if record.title else ''} ({turns} earlier messages)")
 
 
-def _chat_loop(service: RunService, thread_id: str, user_id: str, read, write) -> None:
+def _stdout(text: str) -> None:
+    sys.stdout.write(text)
+    sys.stdout.flush()
+
+
+def _plain_turn(service: RunService, message: str, thread_id: str, user_id: str, write, emit) -> None:
+    write(f"DearFlow: {service.invoke(message, thread_id=thread_id, user_id=user_id).text}")
+
+
+def _stream_turn(service: RunService, message: str, thread_id: str, user_id: str, write, emit) -> None:
+    """Print one turn live. Tokens come from the model node; everything else is a status line."""
+    started = False  # have we begun the "DearFlow: ..." line?
+
+    def say(text: str) -> None:
+        nonlocal started
+        if not started:
+            emit("DearFlow: ")
+            started = True
+        emit(text)
+
+    def note(text: str) -> None:
+        nonlocal started
+        if started:
+            emit("\n")
+            started = False
+        write(f"  {text}")
+
+    for event in service.stream(message, thread_id=thread_id, user_id=user_id, modes=["messages", "updates", "custom"]):
+        data = event.data
+        if event.event == "messages":
+            item = data["message"]
+            is_model_text = data["node"] == "model" and item["type"] == "ai" and not item.get("tool_calls")
+            is_question = item["type"] == "tool" and item.get("name") == "ask_clarification"
+            if (is_model_text or is_question) and isinstance(item["content"], str) and item["content"]:
+                say(item["content"])
+        elif event.event == "updates":
+            for call in _tool_calls(data):
+                note(f"→ {call['name']}")
+        elif event.event == "custom" and data.get("type") == "subagent.start":
+            note(f"⇢ subagent {data['subagent_type']}: {data.get('description') or 'working'}")
+        elif event.event == "error":
+            note(f"error: {data['message']}")
+    if started:
+        emit("\n")
+
+
+def _tool_calls(update: dict) -> list[dict]:
+    """Tool calls the model just decided to make, from an `updates` chunk."""
+    messages = (update.get("model") or {}).get("messages") or []
+    return [call for message in messages for call in message.get("tool_calls", [])]
+
+
+def _chat_loop(service: RunService, thread_id: str, user_id: str, read, write, emit, turn) -> None:
     while True:
         try:
             message = read("You: ").strip()
@@ -64,8 +123,7 @@ def _chat_loop(service: RunService, thread_id: str, user_id: str, read, write) -
         if not message:
             continue
 
-        result = service.invoke(message, thread_id=thread_id, user_id=user_id)
-        write(f"DearFlow: {result.text}")
+        turn(service, message, thread_id, user_id, write, emit)
 
 
 def list_threads(app_config: AppConfig, user_id: str, write: Callable[[str], None] = print) -> None:
@@ -96,6 +154,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-id", default="default", help="Whose memory to use.")
     parser.add_argument("--persist", action="store_true", help="Save conversations to persistence.path so they survive restarts.")
     parser.add_argument("--list-threads", action="store_true", help="List saved conversations and exit.")
+    parser.add_argument("--no-stream", action="store_true", help="Wait for the full answer instead of printing it live.")
     parser.add_argument("--subagents", action="store_true", help="Enable the `task` tool for delegating to subagents.")
     return parser
 
@@ -122,5 +181,5 @@ def main(argv: Sequence[str] | None = None, *, chat_runner: ChatRunner = run_cha
         list_threads(app_config, args.user_id)
         return 0
 
-    chat_runner(app_config=app_config, thread_id=args.thread_id, user_id=args.user_id, model_name=args.model)
+    chat_runner(app_config=app_config, thread_id=args.thread_id, user_id=args.user_id, model_name=args.model, stream=not args.no_stream)
     return 0

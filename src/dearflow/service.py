@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -11,9 +13,13 @@ from dearflow.agents import LeadAgent
 from dearflow.persistence import Persistence
 from dearflow.persistence.runs import ERROR, INTERRUPTED, SUCCESS
 from dearflow.persistence.threads import IDLE
+from dearflow.streaming import END, ERROR as ERROR_EVENT, METADATA, StreamEvent, normalize_modes, to_jsonable
 from dearflow.text import text_of
 
 _PREVIEW_CHARS = 2000
+# Events worth keeping in the run log. Tokens (`messages`) and full snapshots
+# (`values`) are too big and add nothing the checkpointer doesn't have.
+_LOGGED_EVENTS = frozenset({METADATA, "updates", "custom", ERROR_EVENT, END})
 
 
 class ThreadBusyError(RuntimeError):
@@ -33,46 +39,95 @@ class RunResult:
         return content if isinstance(content, str) else str(content)
 
 
+@dataclass
+class _Run:
+    """Handle for a run in progress (see `RunService._tracked`)."""
+
+    run_id: str
+    thread_id: str
+    config: dict[str, Any]
+    state: dict[str, Any] | None = None  # set by the caller when it already has the final state
+    error: str | None = field(default=None)
+
+
 class RunService:
-    """One run = claim the thread, record it, invoke the agent, record the outcome.
+    """One run = claim the thread, record it, run the agent, record the outcome.
 
     The service never holds conversation data itself: messages are saved by the
-    checkpointer, and `threads` / `runs` only describe them. That is the same
-    split DeerFlow uses.
+    checkpointer, and `threads` / `runs` / `run_events` only describe them. That
+    is the same split DeerFlow uses.
+
+    `invoke` returns when the run is done. `stream` yields `StreamEvent`s while
+    it runs; both share the same bookkeeping.
     """
 
     def __init__(self, agent: LeadAgent, persistence: Persistence) -> None:
         self._agent = agent
         self._db = persistence
 
-    def invoke(self, message: str, *, thread_id: str, user_id: str = "default") -> RunResult:
-        threads, runs = self._db.threads, self._db.runs
-        threads.ensure(thread_id, user_id)
-        if not threads.claim(thread_id):
-            raise ThreadBusyError(f"thread {thread_id!r} already has a run in progress")
+    # --- public API ------------------------------------------------------------
 
-        run_id = runs.start(thread_id, user_id, self._agent.model_name)
-        config = {"configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id}}
+    def invoke(self, message: str, *, thread_id: str, user_id: str = "default") -> RunResult:
+        with self._tracked(message, thread_id, user_id) as run:
+            run.state = self._agent.graph.invoke(self._input(message), run.config)
+        return RunResult(run.run_id, thread_id, run.state)
+
+    def stream(
+        self,
+        message: str,
+        *,
+        thread_id: str,
+        user_id: str = "default",
+        modes: list[str] | str | None = None,
+    ) -> Iterator[StreamEvent]:
+        """Run the agent and yield events as they happen.
+
+        Order: `metadata`, then the chunks of the requested `modes`, then `end`
+        (or `error` followed by `end`). Stop iterating early and the run is
+        recorded as interrupted. Unsupported modes raise before anything starts.
+        """
+        requested = normalize_modes(modes)
+        # `updates` is always collected for the run log, even if the caller didn't ask for it.
+        graph_modes = list(dict.fromkeys([*requested, "updates"]))
+        seq = 0
+        run_id: str | None = None
+
+        def make(name: str, data: Any) -> StreamEvent:
+            nonlocal seq
+            seq += 1
+            item = StreamEvent(seq, name, to_jsonable(data))
+            if name in _LOGGED_EVENTS:
+                self._db.events.append(run_id, seq, name, item.data)
+            return item
+
+        failure: str | None = None
         try:
-            state = self._agent.graph.invoke({"messages": [{"role": "user", "content": message}]}, config)
-        except Exception as exc:
-            runs.finish(run_id, ERROR, error=f"{type(exc).__name__}: {exc}", first_human_message=message[:_PREVIEW_CHARS])
-            raise
-        except BaseException:  # Ctrl-C and friends: the run did not finish, and it isn't an error either
-            runs.finish(run_id, INTERRUPTED, first_human_message=message[:_PREVIEW_CHARS])
-            raise
-        else:
-            runs.finish(
-                run_id,
-                SUCCESS,
-                first_human_message=message[:_PREVIEW_CHARS],
-                last_ai_message=self._last_answer(state),
-                message_count=len(state["messages"]),
-            )
-            self._save_title(thread_id, state)
-            return RunResult(run_id, thread_id, state)
-        finally:
-            threads.set_status(thread_id, IDLE)
+            with self._tracked(message, thread_id, user_id) as run:
+                run_id = run.run_id
+                yield make(METADATA, {"run_id": run_id, "thread_id": thread_id})
+                for mode, chunk in self._agent.graph.stream(self._input(message), run.config, stream_mode=graph_modes):
+                    data = self._shape(mode, chunk)
+                    if data is None:
+                        continue
+                    if mode in requested:
+                        yield make(mode, data)
+                    elif mode == "updates":
+                        make(mode, data)  # log only
+        except ThreadBusyError:
+            raise  # no run exists, so there is nothing to report in a stream
+        except Exception as exc:  # `_tracked` already recorded the failure
+            failure = f"{type(exc).__name__}: {exc}"
+        # A consumer that stops early raises GeneratorExit inside the `with`; it is a
+        # BaseException, so it skips everything below. The run is recorded "interrupted".
+
+        # The run is fully recorded by now, so a client that sees `end` can trust the records.
+        if failure is not None:
+            yield make(ERROR_EVENT, {"message": failure})
+        yield make(END, {"status": SUCCESS if failure is None else ERROR})
+
+    def events(self, run_id: str, after_seq: int = 0) -> list[StreamEvent]:
+        """Replay a finished (or running) run's log."""
+        return [StreamEvent(seq, name, data) for seq, name, data in self._db.events.list(run_id, after_seq)]
 
     def history(self, thread_id: str) -> list:
         """All messages of a thread, straight from the checkpointer (hidden ones excluded)."""
@@ -80,10 +135,67 @@ class RunService:
         messages = (snapshot.values or {}).get("messages", [])
         return [m for m in messages if not m.additional_kwargs.get("hide_from_ui")]
 
-    def _save_title(self, thread_id: str, state: dict[str, Any]) -> None:
-        title = state.get("title")
-        if title:
-            self._db.threads.set_title(thread_id, title)
+    # --- bookkeeping -----------------------------------------------------------
+
+    @staticmethod
+    def _shape(mode: str, chunk: Any) -> Any | None:
+        """Tidy a raw chunk for clients; None means "not worth sending".
+
+        - `messages`: LangGraph gives `(message, metadata)`; clients get
+          `{"message", "node"}`. Hidden middleware messages (date, memory) are dropped.
+        - `updates`: steps where nothing changed (`{"Middleware.hook": None}`) are dropped.
+        """
+        if mode == "messages":
+            message, metadata = chunk
+            if message.additional_kwargs.get("hide_from_ui"):
+                return None
+            return {"message": message, "node": (metadata or {}).get("langgraph_node")}
+        if mode == "updates" and all(update is None for update in chunk.values()):
+            return None
+        return chunk
+
+    @staticmethod
+    def _input(message: str) -> dict[str, Any]:
+        return {"messages": [{"role": "user", "content": message}]}
+
+    @contextmanager
+    def _tracked(self, message: str, thread_id: str, user_id: str) -> Iterator[_Run]:
+        """Claim the thread and record the run around the `with` body.
+
+        The body sets `run.state` if it has the final state; otherwise it is read
+        back from the checkpointer. An exception marks the run `error`; Ctrl-C or
+        an abandoned stream marks it `interrupted`. The thread is always freed.
+        """
+        threads, runs = self._db.threads, self._db.runs
+        threads.ensure(thread_id, user_id)
+        if not threads.claim(thread_id):
+            raise ThreadBusyError(f"thread {thread_id!r} already has a run in progress")
+
+        run_id = runs.start(thread_id, user_id, self._agent.model_name)
+        config = {"configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id}}
+        run = _Run(run_id, thread_id, config)
+        preview = message[:_PREVIEW_CHARS]
+        try:
+            yield run
+        except Exception as exc:
+            runs.finish(run_id, ERROR, error=f"{type(exc).__name__}: {exc}", first_human_message=preview)
+            raise
+        except BaseException:  # Ctrl-C, abandoned stream: not finished, and not an error either
+            runs.finish(run_id, INTERRUPTED, first_human_message=preview)
+            raise
+        else:
+            state = run.state or self._agent.graph.get_state(config).values
+            runs.finish(
+                run_id,
+                SUCCESS,
+                first_human_message=preview,
+                last_ai_message=self._last_answer(state),
+                message_count=len(state["messages"]),
+            )
+            if state.get("title"):
+                threads.set_title(thread_id, state["title"])
+        finally:
+            threads.set_status(thread_id, IDLE)
 
     @staticmethod
     def _last_answer(state: dict[str, Any]) -> str | None:

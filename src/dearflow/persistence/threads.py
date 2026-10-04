@@ -65,5 +65,6 @@ class ThreadStore:
         return bool(rows)
 
     def delete(self, thread_id: str) -> None:
+        self._db.execute("DELETE FROM run_events WHERE run_id IN (SELECT run_id FROM runs WHERE thread_id = ?)", (thread_id,))
         self._db.execute("DELETE FROM runs WHERE thread_id = ?", (thread_id,))
         self._db.execute("DELETE FROM threads WHERE thread_id = ?", (thread_id,))
