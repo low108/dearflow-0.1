@@ -1,0 +1,19 @@
+default_model: fast
+
+system_prompt: >-
+  You are DearFlow, a helpful general-purpose agent. Use tools when they are
+  useful and explain results clearly.
+
+models:
+  fast:
+    model: openai:ilmu-mini-v3.3
+  reasoning:
+    model: openai:ilmu-v3.1
+
+tools:
+  - name: current_time
+    group: utility
+    use: dearflow.tools.builtins:current_time
+  - name: calculator
+    group: math
+    use: dearflow.tools.builtins:calculator
