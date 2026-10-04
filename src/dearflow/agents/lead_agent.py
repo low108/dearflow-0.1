@@ -11,6 +11,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from dearflow.config import AppConfig
+from dearflow.memory import FactExtractor, MemoryManager, MemoryStore
 from dearflow.middlewares import MiddlewareChain
 from dearflow.models import ModelFactory
 from dearflow.prompts import PromptBuilder
@@ -71,6 +72,7 @@ class LeadAgentFactory:
         self._tool_registry = tool_registry or ToolRegistry(app_config, extra_tools=self._builtin_tools())
         self._middleware_chain = middleware_chain  # None = build the default per run
         self._checkpointer = checkpointer
+        self._memory: MemoryManager | None = None  # built on first use
 
     def build(self, run_config: RunnableConfig | None = None) -> LeadAgent:
         """Create the agent. `configurable.model_name` overrides the default model."""
@@ -95,6 +97,8 @@ class LeadAgentFactory:
             model=model,
             summary_model=self._summary_model(),
             subagents=subagent_config if subagents_on else None,
+            memory=self.memory,
+            inject_memory=self._app_config.memory.injection_enabled,
         )
 
         prompt = PromptBuilder(
@@ -115,6 +119,28 @@ class LeadAgentFactory:
             checkpointer=self._checkpointer,
         )
         return LeadAgent(graph=graph, model_name=model_name)
+
+    @property
+    def memory(self) -> MemoryManager | None:
+        """The shared memory manager (None when memory is off). One per factory,
+        so every agent it builds feeds the same update queue."""
+        config = self._app_config.memory
+        if not config.enabled:
+            return None
+        if self._memory is None:
+            model = self._create_model(config.model or self._app_config.default_model)
+            self._memory = MemoryManager(
+                MemoryStore(config.storage_path, max_facts=config.max_facts),
+                FactExtractor(model, confidence_threshold=config.confidence_threshold),
+                debounce_seconds=config.debounce_seconds,
+                max_injection_tokens=config.max_injection_tokens,
+            )
+        return self._memory
+
+    def flush_memory(self) -> None:
+        """Save pending memory updates now (call before exiting)."""
+        if self._memory is not None:
+            self._memory.flush()
 
     def _create_model(self, alias: str):
         return self._model_factory.create(self._app_config.resolve_model(alias))

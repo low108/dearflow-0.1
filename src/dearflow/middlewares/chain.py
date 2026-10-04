@@ -10,6 +10,8 @@ from langchain_core.language_models import BaseChatModel
 from dearflow.config import ContextConfig, SubagentsConfig
 from dearflow.middlewares.clarification import ClarificationMiddleware
 from dearflow.middlewares.dynamic_context import Clock, DynamicContextMiddleware, make_clock
+from dearflow.memory import MemoryManager
+from dearflow.middlewares.memory import MemoryMiddleware
 from dearflow.middlewares.subagent_limit import SubagentLimitMiddleware
 from dearflow.middlewares.title import TitleMiddleware
 from dearflow.middlewares.todo import TodoMiddleware
@@ -36,12 +38,14 @@ class MiddlewareChain:
         model: BaseChatModel | None = None,
         summary_model: BaseChatModel | None = None,
         subagents: SubagentsConfig | None = None,
+        memory: MemoryManager | None = None,
+        inject_memory: bool = True,
         clock: Clock | None = None,
     ) -> MiddlewareChain:
         """The standard DearFlow pipeline. Later slices add entries here.
 
         Order, outermost first:
-            tool errors -> date reminder -> summarization -> title -> subagent limit -> todos -> clarification
+            tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> todos -> clarification
 
         Clarification is last on purpose: `after_model` hooks run in reverse
         order, so it sees the model's answer first and can strip sibling tool
@@ -54,6 +58,8 @@ class MiddlewareChain:
         if context is not None:
             if context.date_reminder:
                 chain.add(DynamicContextMiddleware(clock or make_clock(context.timezone)))
+            if memory is not None:
+                chain.add(MemoryMiddleware(memory, inject=inject_memory))
             summarization = context.summarization
             if summarization.enabled and (summary_model or model) is not None:
                 chain.add(

@@ -8,12 +8,12 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import RemoveMessage
 
 from dearflow.middlewares.messages import (
     DATE_REMINDER,
     injected_kind,
     injected_message,
+    insert_before_last_user,
     is_real_user_message,
 )
 
@@ -59,11 +59,7 @@ class DynamicContextMiddleware(AgentMiddleware):
             DATE_REMINDER,
             reminder_date=today,
         )
-        # The reminder must come BEFORE the user's message, but state updates can
-        # only append. So: remove the user message, add the reminder, then add the
-        # user message back under a new id.
-        user_again = last.model_copy(update={"id": f"{last.id}__user"})
-        return {"messages": [RemoveMessage(id=last.id), reminder, user_again]}
+        return {"messages": insert_before_last_user(last, reminder)}
 
     async def abefore_agent(self, state: Any, runtime: Any) -> dict[str, Any] | None:
         return self.before_agent(state, runtime)

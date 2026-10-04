@@ -34,6 +34,10 @@ config.yaml ──► AppConfig (pydantic)
 | `SubagentExecutor` | builds a fresh agent per task, runs it, returns its last message (turn + time limits) |
 | `task` tool | the lead agent delegates: `task(prompt, subagent_type)`; several calls per response run in parallel |
 | `SubagentLimitMiddleware` | enforces max calls per response / per user message in code |
+| `MemoryStore` | facts per user in `memory/<user_id>/memory.json`: dedupe, cap, token-budgeted rendering |
+| `FactExtractor` | asks a model for facts (JSON), tolerates fences / `<think>` / bad items |
+| `MemoryManager` | debounced background updates: a burst of turns costs one extraction |
+| `MemoryMiddleware` | before a run: hidden `<memory>` message; after it: queue the exchange |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -65,6 +69,15 @@ filtered copy of the lead agent's tools (never `task`, never `ask_clarification`
 returns only its final message, so the lead's context stays small. How this differs
 from real DeerFlow is in `docs/deerflow-comparison.md`.
 
+## Memory
+
+`dearflow --memory --user-id ann`. After each turn the user's message and the final
+reply are queued; after a quiet period one model call extracts lasting facts
+(`"Prefers concise answers"`) into `memory/ann/memory.json`. At the start of each
+new message the known facts are added as a hidden `<memory>` block (not in the
+system prompt, which keeps it cacheable). Tool calls and hidden messages are never
+sent to the extractor. Memory failures are logged, never shown to the chat.
+
 ## Run
 
 ```bash
@@ -89,7 +102,7 @@ uv run pytest -q
 3. ✅ Core tools (clarification, todos; web search deferred)
 4. ✅ Context middleware (date, summarization, title)
 5. ✅ Subagents (`task` tool)
-6. Memory
+6. ✅ Memory
 7. MCP
 8. Persistence: SQLite checkpointer + thread/run tables
 9. Streaming: stream modes, run events

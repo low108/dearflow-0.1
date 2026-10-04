@@ -19,6 +19,7 @@ def run_chat(
     *,
     app_config: AppConfig,
     thread_id: str,
+    user_id: str = "default",
     model_name: str | None = None,
     model_factory: ModelFactory | None = None,
     read: Callable[[str], str] = input,
@@ -31,9 +32,16 @@ def run_chat(
         checkpointer=InMemorySaver(),
     )
     agent = factory.build({"configurable": {"model_name": model_name}})
-    run_config = {"configurable": {"thread_id": thread_id}}
+    run_config = {"configurable": {"thread_id": thread_id, "user_id": user_id}}
 
-    write(f"DearFlow CLI — model: {agent.model_name}")
+    try:
+        _chat_loop(agent, run_config, read, write, model_name=agent.model_name)
+    finally:
+        factory.flush_memory()
+
+
+def _chat_loop(agent, run_config, read, write, *, model_name: str) -> None:
+    write(f"DearFlow CLI — model: {model_name}")
     write("Type 'exit' or 'quit' to stop.")
 
     while True:
@@ -62,6 +70,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--thread-id", default="cli", help="Conversation checkpoint thread ID.")
     parser.add_argument("--system-prompt", help="Override the configured system prompt.")
     parser.add_argument("--plan", action="store_true", help="Plan mode: enable the write_todos task list.")
+    parser.add_argument("--memory", action="store_true", help="Enable long-term memory (facts saved under memory.storage_path).")
+    parser.add_argument("--user-id", default="default", help="Whose memory to use.")
     parser.add_argument("--subagents", action="store_true", help="Enable the `task` tool for delegating to subagents.")
     return parser
 
@@ -78,5 +88,8 @@ def main(argv: Sequence[str] | None = None, *, chat_runner: ChatRunner = run_cha
     if args.subagents:
         app_config = app_config.model_copy(update={"subagents": app_config.subagents.model_copy(update={"enabled": True})})
 
-    chat_runner(app_config=app_config, thread_id=args.thread_id, model_name=args.model)
+    if args.memory:
+        app_config = app_config.model_copy(update={"memory": app_config.memory.model_copy(update={"enabled": True})})
+
+    chat_runner(app_config=app_config, thread_id=args.thread_id, user_id=args.user_id, model_name=args.model)
     return 0

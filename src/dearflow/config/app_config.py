@@ -91,6 +91,19 @@ class SubagentsConfig(_Config):
     custom_agents: dict[str, CustomSubagentConfig] = Field(default_factory=dict)
 
 
+class MemoryConfig(_Config):
+    """Long-term memory: facts about the user, learned in the background."""
+
+    enabled: bool = False
+    storage_path: str = "memory"  # one folder per user inside
+    injection_enabled: bool = True  # put known facts in front of each new message
+    debounce_seconds: float = Field(default=10, ge=0)  # wait for quiet before extracting
+    max_facts: int = Field(default=100, ge=1)
+    confidence_threshold: float = Field(default=0.7, ge=0, le=1)  # drop less certain facts
+    max_injection_tokens: int = Field(default=1500, gt=0)
+    model: str | None = None  # alias for the extraction model; None = default_model
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -109,6 +122,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode
 

@@ -35,7 +35,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Summarization | custom, skill/tool-aware | ✅ LangChain built-in |
 | Title | model-written, with retries | ✅ fallback-first, optional model |
 | Subagents | background executor, polling, batches, ledger, receipts, acceptance checks | ✅ `task` tool + registry + executor + limit middleware |
-| Memory | `MemoryMiddleware` + queued LLM updater | ⏭ slice 6 |
+| Memory | `MemoryMiddleware` + debounce queue + LLM updater; facts as Markdown files; pluggable backends | ✅ slice 6: same flow, one JSON file per user |
 | Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ⏭ slice 8 (SQLite only) |
 | Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ⏭ slice 9 |
 | Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 10 (FastAPI only) |
@@ -78,6 +78,18 @@ subagent, and context snapshots. Parallelism comes for free: when the model emit
   The result is the same without extra state.
 - **Enablement.** DeerFlow switches subagents on per run (`subagent_enabled`). We mirror that
   with `subagents.enabled` in config plus `configurable.subagent_enabled` and `--subagents`.
+
+## Memory (slice 6): what we kept
+
+DeerFlow (`agents/memory/`, 16k lines across backends) does: `MemoryMiddleware.after_agent` queues
+user messages plus final AI replies (no tool calls) -> a debounce queue batches a burst of turns
+-> an LLM extracts facts (`content`, `category`, `confidence`) -> facts are stored per user ->
+`<memory>` is injected as a user-role block. We keep all of that.
+
+We drop: swappable backends (DeerMem, mem0, OpenViking, Honcho), summaries (`user`/`history`),
+staleness review and consolidation, pre-screen and signal classifiers, agent-scoped memory,
+model-facing tools (`memory_search`/`add`/`update`/`delete`), relevance ranking by query, and
+the PII-redacted queue (comes with slice 12). Facts are ranked by confidence then recency and cut to a token budget.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

@@ -36,6 +36,19 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Long-term memory: facts about the user, learned in the background after each
+# turn and shown to the model at the start of the next one. Off by default
+# (also: `dearflow --memory --user-id ann`).
+memory:
+  enabled: false
+  storage_path: memory    # memory/<user_id>/memory.json
+  injection_enabled: true
+  debounce_seconds: 10    # wait for quiet, then ONE extraction call for the burst
+  max_facts: 100
+  confidence_threshold: 0.7
+  max_injection_tokens: 1500
+  model: null             # alias for the extraction model; null = default_model
+
 # Delegation: the lead agent gets a `task` tool that runs a subagent in a fresh
 # context. Off by default (also: `dearflow --subagents`).
 subagents:
