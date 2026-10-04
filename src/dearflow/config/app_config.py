@@ -221,6 +221,16 @@ class PiiRedactionConfig(_Config):
         return self
 
 
+class VerificationConfig(_Config):
+    """Tool receipts and the check of subagent reports (same names as DeerFlow's `verification`)."""
+
+    receipts_enabled: bool = True  # stamp a receipt on every tool result
+    # Lead agent: show the receipt list to the model on every call ("always"), or only while it
+    # is reading a subagent's result ("delegation_only"). Subagents always see it: that is where
+    # citations are written.
+    receipts_render_mode: Literal["always", "delegation_only"] = "delegation_only"
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -239,6 +249,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    verification: VerificationConfig = Field(default_factory=VerificationConfig)
     pii_redaction: PiiRedactionConfig = Field(default_factory=PiiRedactionConfig)
     token_usage: TokenUsageConfig = Field(default_factory=TokenUsageConfig)
     token_budget: TokenBudgetConfig = Field(default_factory=TokenBudgetConfig)

@@ -102,6 +102,7 @@ class LeadAgentFactory:
                 default_model=model,
                 model_resolver=self._create_model,
                 extra_middleware=self._subagent_middleware(),
+                receipts=self._app_config.verification.receipts_enabled,
             )
             tools = [*tools, create_task_tool(executor, registry)]
 
@@ -117,6 +118,7 @@ class LeadAgentFactory:
             token_budget=self._app_config.token_budget,
             usage=self.usage,
             redactor=self._redactor,
+            verification=self._app_config.verification,
             pii_tool_names=self._app_config.pii_redaction.tool_names,
         )
 
@@ -124,6 +126,7 @@ class LeadAgentFactory:
             self._app_config.system_prompt,
             self._skills,
             subagents=registry,
+            receipts=self._app_config.verification.receipts_enabled,
             max_concurrent=subagent_config.max_concurrent,
             max_total=subagent_config.max_total,
         ).build()

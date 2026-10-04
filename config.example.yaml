@@ -36,6 +36,13 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# Tool receipts: every tool result is stamped with a record (tool, status, hashes of
+# arguments and output; never the output itself). Subagents cite receipts as [r1] in their
+# reports, and the lead gets a `citations:` line saying whether the cited calls happened.
+verification:
+  receipts_enabled: true
+  receipts_render_mode: delegation_only   # lead agent: show the receipt list only while reading a subagent's result (or: always)
+
 # Hide personal data from the model: emails, API keys, card numbers (Luhn-checked), phone
 # numbers, national IDs. Each is replaced by a stable placeholder like [EMAIL_abc...].
 # The stored conversation keeps the original. token_secret is required (16+ characters).

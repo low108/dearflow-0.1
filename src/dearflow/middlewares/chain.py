@@ -7,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from langchain_core.language_models import BaseChatModel
 
-from dearflow.config import ContextConfig, SubagentsConfig, TokenBudgetConfig
+from dearflow.config import ContextConfig, SubagentsConfig, TokenBudgetConfig, VerificationConfig
 from dearflow.middlewares.clarification import ClarificationMiddleware
 from dearflow.middlewares.dynamic_context import Clock, DynamicContextMiddleware, make_clock
 from dearflow.memory import MemoryManager
@@ -19,6 +19,7 @@ from dearflow.middlewares.token_budget import TokenBudgetMiddleware
 from dearflow.middlewares.title import TitleMiddleware
 from dearflow.middlewares.todo import TodoMiddleware
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
+from dearflow.middlewares.tool_receipt import ToolReceiptMiddleware
 from dearflow.pii import Redactor
 from dearflow.usage import UsageRegistry
 
@@ -49,12 +50,13 @@ class MiddlewareChain:
         usage: UsageRegistry | None = None,
         redactor: Redactor | None = None,
         pii_tool_names: Sequence[str] = (),
+        verification: VerificationConfig | None = None,
         clock: Clock | None = None,
     ) -> MiddlewareChain:
         """The standard DearFlow pipeline. Later slices add entries here.
 
         Order, outermost first:
-            tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> token budget -> todos -> PII redaction -> clarification
+            receipts -> tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> token budget -> todos -> PII redaction -> clarification
 
         Clarification is last on purpose: `after_model` hooks run in reverse
         order, so it sees the model's answer first and can strip sibling tool
@@ -63,7 +65,11 @@ class MiddlewareChain:
         Context middleware is only added when `context` is given (the factory
         always gives it), so a bare `default()` stays small for tests.
         """
-        chain = cls([ToolErrorHandlingMiddleware()])
+        chain = cls()
+        if verification is not None and verification.receipts_enabled:
+            # Outermost, so it also sees results that inner layers rebuilt or turned into errors.
+            chain.add(ToolReceiptMiddleware(render_mode=verification.receipts_render_mode))
+        chain.add(ToolErrorHandlingMiddleware())
         if context is not None:
             if context.date_reminder:
                 chain.add(DynamicContextMiddleware(clock or make_clock(context.timezone)))

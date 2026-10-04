@@ -78,3 +78,11 @@ async def thread_token_usage(thread_id: ThreadId, gw: Gateway = Depends(get_gate
     """Token totals for the whole thread, split by caller (lead / subagent / middleware) and model."""
     _require_thread(gw, thread_id, user)
     return {"thread_id": thread_id, **gw.persistence.runs.aggregate_tokens(thread_id)}
+
+
+@router.get("/{thread_id}/receipts")
+async def thread_receipts(thread_id: ThreadId, gw: Gateway = Depends(get_gateway), user: str = Depends(current_user)):
+    """The audit trail: one receipt per tool call (name, status, argument and output hashes), oldest first."""
+    _require_thread(gw, thread_id, user)
+    receipts = await asyncio.to_thread(gw.service().receipts, thread_id)
+    return {"thread_id": thread_id, "receipts": receipts}

@@ -7,13 +7,14 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from dearflow.agents import LeadAgent
 from dearflow.persistence import Persistence
 from dearflow.persistence.runs import ERROR, INTERRUPTED, SUCCESS
 from dearflow.persistence.threads import IDLE
 from dearflow.streaming import END, ERROR as ERROR_EVENT, METADATA, StreamEvent, normalize_modes, to_jsonable
+from dearflow.receipts import extract_receipts
 from dearflow.text import text_of
 from dearflow.usage import UsageCallback
 
@@ -137,6 +138,23 @@ class RunService:
     def state(self, thread_id: str) -> dict[str, Any]:
         """The thread's current state values (empty dict for a thread with no checkpoint)."""
         return dict(self._agent.graph.get_state({"configurable": {"thread_id": thread_id}}).values or {})
+
+    def receipts(self, thread_id: str) -> list[dict[str, Any]]:
+        """Every tool call recorded in a thread, as receipts r1..rN.
+
+        Receipts of `task` calls also carry `citation_verdict`: the check of that subagent's report.
+        Numbering follows the messages as they are now (see `dearflow.receipts` for the caveat).
+        """
+        messages = self.state(thread_id).get("messages", [])
+        verdicts = {
+            m.tool_call_id: m.additional_kwargs["receipt_verdict"]
+            for m in messages
+            if isinstance(m, ToolMessage) and m.additional_kwargs.get("receipt_verdict")
+        }
+        return [
+            {**receipt, **({"citation_verdict": verdicts[receipt["tool_call_id"]]} if receipt["tool_call_id"] in verdicts else {})}
+            for receipt in extract_receipts(messages)
+        ]
 
     def history(self, thread_id: str) -> list:
         """All messages of a thread, straight from the checkpointer (hidden ones excluded)."""

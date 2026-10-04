@@ -50,6 +50,8 @@ config.yaml ──► AppConfig (pydantic)
 | `TokenBudgetMiddleware` | soft warning (shown to the next model call only), then hard stop (tool calls removed); shared with subagents |
 | `Redactor` / `make_redactor` | regex detectors with checksums (Luhn, CN ID, CPF) and HMAC placeholders `[EMAIL_abc...]`; no model call |
 | `PiiRedactionMiddleware` | redacts what the model is shown: user messages and results of outside tools (MCP). Memory queue, titles and summaries use the same redactor |
+| `ToolReceiptMiddleware` | outermost layer: stamps a receipt (name, status, argument/output hashes) on every tool result; shows the receipt list to the model and stamps that list on its reply |
+| `verify_receipt_citations` | checks a subagent report's `[rN]` citations against its receipts; the lead gets a `citations:` line (advisory, never "verified") |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -138,6 +140,25 @@ keeps it going; `join` observers never cancel it. With `gateway.api_key` set, se
 `Authorization: Bearer <key>`; the `X-User-Id` header then names the user, and other users'
 threads answer `404`.
 
+## Tool receipts
+
+Every tool result is stamped with a receipt by code, not by the model: tool name, status, and hashes of the
+arguments and the output (the output itself is never stored). The layer is outermost, so calls that failed or
+were rewritten by inner layers are recorded too, and a tool cannot write its own receipt. Subagents are shown
+their receipts (`[r1] lookup status=success ...`) and asked to cite them in their final report
+(`I looked it up [r1 lookup]`). When the subagent finishes, the `task` tool checks every citation against the
+receipts that subagent was shown, and appends one line for the lead agent:
+
+```
+citations: 2 resolved - execution evidence only, does not validate claim correctness
+citations: 1 resolved, 1 unknown - ...          (it cited a receipt that does not exist)
+citations: UNVERIFIED - action claims without receipt citations      ("I created the file ..." with no citation)
+```
+
+"Resolved" proves the call happened and succeeded, not that the sentence next to it is true. The receipts and
+the check are saved with the conversation: `GET /api/threads/{id}/receipts` is the audit trail, and tool
+messages in `/messages` and `updates` events carry their `receipt`.
+
 ## PII redaction
 
 With `pii_redaction.enabled`, the model never sees emails, API keys, card numbers, phone numbers or
@@ -210,7 +231,8 @@ uv run pytest -q
 10. ✅ FastAPI gateway (SSE endpoint)
 11. ✅ Token usage + token budget
 12. ✅ PII redaction
-13. Tool receipts + audit
+13. ✅ Tool receipts + audit
 
-Slices 11-13 are the hardening DeerFlow adds around the core. Each is one middleware
-plus a small config section. Design notes are in `docs/deerflow-comparison.md`.
+All 13 slices are built. Slices 11-13 are the hardening DeerFlow adds around the core; each is one
+middleware plus a small config section. How every slice differs from DeerFlow is in
+`docs/deerflow-comparison.md`.

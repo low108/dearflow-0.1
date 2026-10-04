@@ -8,6 +8,8 @@ from typing import Any
 
 from langchain_core.messages import BaseMessage
 
+from dearflow.receipts import RECEIPT_KEY
+
 # Names besides the stream modes:
 METADATA = "metadata"  # first event: which run this is
 ERROR = "error"  # the run failed; `data.message` says why
@@ -30,6 +32,11 @@ def to_jsonable(value: Any) -> Any:
             data["tool_call_id"] = value.tool_call_id
             data["name"] = value.name
             data["status"] = getattr(value, "status", None)
+            # The audit evidence travels with the message: the receipt, and for `task` results the citation check.
+            if value.additional_kwargs.get(RECEIPT_KEY):
+                data["receipt"] = value.additional_kwargs[RECEIPT_KEY]
+            if value.additional_kwargs.get("receipt_verdict"):
+                data["receipt_verdict"] = value.additional_kwargs["receipt_verdict"]
         if value.additional_kwargs.get("hide_from_ui"):
             data["hidden"] = True
         return data

@@ -42,7 +42,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
 | Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ✅ slice 11 |
 | PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ✅ slice 12 |
-| Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ⏭ slice 13 |
+| Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ✅ slice 13 |
 | Other safety | input sanitization, loop detection, finish-reason guards, read-before-write | ✂️ |
 | Other observability | progress events, tool output synopsis | ✂️ |
 | Uploads / images / artifacts | uploads middleware, `view_image`, `present_files` | ✂️ (state keys reserved) |
@@ -190,7 +190,33 @@ first-party web tool names (ours is `pii_redaction.tool_names`, since DearFlow h
 deep-copy fallbacks (our rewrite builds new strings and never mutates messages). Not covered by either project: the
 assistant's own replies and raw storage (checkpoints, run previews, run log), which keep the original text.
 
-## Planned hardening slices (how DeerFlow does it, and what we keep)
+## Tool receipts (slice 13): what we kept
+
+From `tool_receipt.py`, `tool_receipt_middleware.py` and `receipt_verification.py`: a receipt per tool call stamped into
+the result message by the runtime (always overwritten, so a tool can't forge one): tool name and call id, status, 16-hex
+hashes of the arguments and the output, output size, time; no output stored. Ids `r1..rN` are positions in the message list,
+so receipts are derived from messages and never stored twice. `ToolReceiptMiddleware` is the outermost tool wrapper. Before each
+model call it shows the ledger (hidden, request only, with the "execution evidence only" disclaimer, under a character budget that
+drops the oldest entries), and stamps exactly the list that was shown on the reply. Verification reads that stamped list, not
+the current messages, because summarization can drop old tool messages and renumber the survivors. `render_mode` has the same two
+values: subagents always render (they write the citations); the lead renders only while reading a subagent result in the current turn.
+`verify_receipt_citations` is the same function: resolved / failed (status or anchor mismatch) / unknown, plus the "action claims
+without a citation" heuristic (English and Chinese verbs, file paths, and a long-report rule), and the vocabulary stays
+`citation_resolved`, never "verified". A malformed or non-consecutive stamped list fails closed.
+
+**Different on purpose:** the lead sees the verdict as one `citations:` line in the `task` result; DeerFlow records it through a
+separate durable delegation ledger middleware (`delegations` state with run ids), which we never built. The ledger is appended at the
+END of the request (DeerFlow inserts it at the start). Status comes from `ToolMessage.status` (DeerFlow also reads a normalized
+`tool_meta`). Receipts hash the content the model receives, i.e. after inner layers such as PII redaction. We drop: acceptance criteria
+and their deterministic file/test checks, the bash execution records, the selective judge model, step events, and per-tool metadata
+normalization. A subagent that failed or timed out gets an error-status result and no verdict.
+
+## Where this leaves DearFlow
+
+All 13 slices are built. Everything DeerFlow does around the agent loop that we deliberately leave out is listed under each slice above;
+the sandbox and its file and shell tools are the largest piece and are out of scope by design.
+
+## How the hardening slices were planned (kept for reference: how DeerFlow does it, and what we keep)
 
 Read from DeerFlow at `agents/middlewares/`, `persistence/`, `backend/app/gateway/`.
 

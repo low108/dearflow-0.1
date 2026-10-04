@@ -47,11 +47,19 @@ Do NOT delegate when:
 Rules: the subagent knows nothing of this conversation, so write a complete,
 self-contained prompt. At most {max_concurrent} `task` calls per response and
 {max_total} per user message; extra calls are dropped. Afterwards, check the
-reports and write the final answer yourself.
+reports and write the final answer yourself.{verification}
 
 Subagent types:
 {types}
 </subagent_system>"""
+
+
+_VERIFICATION = """
+
+Subagent reports are self-reports, not verified facts. Each result ends with a `citations:` line
+checking the receipt ids the subagent cited: "resolved" means those tool calls happened and
+succeeded (not that the claims are right); "UNVERIFIED" means it described actions without
+citing any. Before relying on a load-bearing claim, check the handle it gives (a path, a URL, an id)."""
 
 
 class PromptBuilder:
@@ -69,7 +77,9 @@ class PromptBuilder:
         subagents: SubagentRegistry | None = None,
         max_concurrent: int = 3,
         max_total: int = 6,
+        receipts: bool = False,
     ) -> None:
+        self._receipts = receipts
         self._base_prompt = base_prompt.strip()
         self._skills = skill_catalog or SkillCatalog()
         self._subagents = subagents  # None = delegation is off, no section
@@ -91,5 +101,6 @@ class PromptBuilder:
         return _SUBAGENT_SECTION.format(
             max_concurrent=self._max_concurrent,
             max_total=self._max_total,
+            verification=_VERIFICATION if self._receipts else "",
             types=self._subagents.describe(),
         )

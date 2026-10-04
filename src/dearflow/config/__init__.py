@@ -17,6 +17,7 @@ from dearflow.config.app_config import (
     TokenBudgetConfig,
     TokenUsageConfig,
     ToolConfig,
+    VerificationConfig,
     expand_env,
 )
 
@@ -39,5 +40,6 @@ __all__ = [
     "TokenBudgetConfig",
     "TokenUsageConfig",
     "ToolConfig",
+    "VerificationConfig",
     "expand_env",
 ]

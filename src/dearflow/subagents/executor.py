@@ -15,8 +15,10 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
-from dearflow.middlewares.messages import text_of
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
+from dearflow.middlewares.tool_receipt import ToolReceiptMiddleware
+from dearflow.receipts import Receipt, extract_citing_turn_receipts
+from dearflow.text import text_of
 from dearflow.subagents.spec import INHERIT, SubagentSpec
 from dearflow.usage import CALLER_KEY, SUBAGENT
 
@@ -36,6 +38,7 @@ class SubagentStatus(StrEnum):
 class SubagentResult:
     status: SubagentStatus
     text: str
+    receipts: list[Receipt] | None = None  # what the subagent could cite; None = not harvested / unknown
 
     def render(self) -> str:
         """The string the lead agent receives as the `task` tool result."""
@@ -77,7 +80,9 @@ class SubagentExecutor:
         default_model: BaseChatModel,
         model_resolver,
         extra_middleware: Sequence[Any] = (),
+        receipts: bool = False,
     ) -> None:
+        self._receipts = receipts  # subagents always see their receipts: that is where citations get written
         self._tools = list(tools)
         self._extra_middleware = list(extra_middleware)  # e.g. the token budget, shared with the lead agent
         self._default_model = default_model
@@ -88,7 +93,11 @@ class SubagentExecutor:
         return create_agent(
             model=model,
             tools=filter_tools(self._tools, spec.tools, spec.disallowed_tools),
-            middleware=[ToolErrorHandlingMiddleware(), *self._extra_middleware],
+            middleware=[
+                *([ToolReceiptMiddleware(render_mode="always")] if self._receipts else []),
+                ToolErrorHandlingMiddleware(),
+                *self._extra_middleware,
+            ],
             system_prompt=spec.system_prompt,
         )
 
@@ -115,7 +124,12 @@ class SubagentExecutor:
         except Exception as exc:
             logger.exception("Subagent %s failed", spec.name)
             return SubagentResult(SubagentStatus.FAILED, f"{type(exc).__name__}: {exc}")
-        return SubagentResult(SubagentStatus.COMPLETED, final_text(last))
+        return self._completed(last)
+
+    def _completed(self, last: dict[str, Any] | None) -> SubagentResult:
+        """A finished run, with the receipts its final reply was shown (None if it was not shown any)."""
+        receipts = extract_citing_turn_receipts((last or {}).get("messages", [])) if self._receipts else None
+        return SubagentResult(SubagentStatus.COMPLETED, final_text(last), receipts)
 
     async def arun(self, spec: SubagentSpec, prompt: str) -> SubagentResult:
         last: dict[str, Any] | None = None
@@ -137,4 +151,4 @@ class SubagentExecutor:
         except Exception as exc:
             logger.exception("Subagent %s failed", spec.name)
             return SubagentResult(SubagentStatus.FAILED, f"{type(exc).__name__}: {exc}")
-        return SubagentResult(SubagentStatus.COMPLETED, final_text(last))
+        return self._completed(last)
