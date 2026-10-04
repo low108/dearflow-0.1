@@ -1,6 +1,5 @@
 """DearFlow: a compact DeerFlow-inspired agent runtime."""
 
-from dearflow.agents.lead_agent import assemble_lead_agent
+from dearflow.agents import LeadAgent, LeadAgentFactory
 
-__all__ = ["assemble_lead_agent"]
-
+__all__ = ["LeadAgent", "LeadAgentFactory"]

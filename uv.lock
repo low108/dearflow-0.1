@@ -181,6 +181,7 @@ dependencies = [
     { name = "langchain" },
     { name = "langchain-openai" },
     { name = "langgraph" },
+    { name = "pydantic" },
     { name = "pyyaml" },
 ]
 
@@ -194,6 +195,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.3,<2" },
     { name = "langchain-openai", specifier = ">=1.0,<2" },
     { name = "langgraph", specifier = ">=1.0,<2" },
+    { name = "pydantic", specifier = ">=2.0,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pyyaml", specifier = ">=6.0,<7" },
 ]

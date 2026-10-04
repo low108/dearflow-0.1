@@ -1,24 +1,26 @@
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage
 
+from conftest import FakeModelFactory
 from dearflow.cli import main, run_chat
+from dearflow.config import AppConfig
 
 
-def test_run_chat_assembles_the_requested_model_and_handles_a_turn():
-    requested_models: list[str] = []
+def test_run_chat_handles_a_turn_then_quits():
     model = FakeMessagesListChatModel(responses=[AIMessage(content="Hello from the CLI")])
-    user_input = iter(["Hello", "quit"])
+    models = FakeModelFactory(model)
+    inputs = iter(["Hello", "quit"])
     output: list[str] = []
 
     run_chat(
-        model_name="test:model",
-        thread_id="cli-test",
-        model_factory=lambda name: requested_models.append(name) or model,
-        read=lambda _prompt: next(user_input),
+        app_config=AppConfig(default_model="test:model"),
+        thread_id="t",
+        model_factory=models,
+        read=lambda _p: next(inputs),
         write=output.append,
     )
 
-    assert requested_models == ["test:model"]
+    assert models.requested == ["test:model"]
     assert output == [
         "DearFlow CLI — model: test:model",
         "Type 'exit' or 'quit' to stop.",
@@ -26,32 +28,20 @@ def test_run_chat_assembles_the_requested_model_and_handles_a_turn():
     ]
 
 
-def test_main_uses_yaml_configuration_for_the_cli_session(tmp_path):
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        """
-default_model: fast
-system_prompt: Answer briefly.
-models:
-  fast:
-    model: openai:ilmu-mini-v3.3
-tools:
-  - name: calculator
-    group: math
-    use: dearflow.tools.builtins:calculator
-""".strip(),
+def test_main_loads_yaml_and_applies_overrides(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        'default_model: fast\nsystem_prompt: Answer briefly.\nmodels:\n  fast: {model: "p:m"}\n',
         encoding="utf-8",
     )
     sessions: list[dict] = []
 
-    exit_code = main(
-        ["--config", str(config_path), "--thread-id", "configured-thread"],
-        chat_runner=lambda **settings: sessions.append(settings),
+    code = main(
+        ["--config", str(path), "--thread-id", "t1", "--system-prompt", "Be formal."],
+        chat_runner=lambda **kw: sessions.append(kw),
     )
 
-    assert exit_code == 0
-    assert len(sessions) == 1
-    assert sessions[0]["model_name"] == "openai:ilmu-mini-v3.3"
-    assert sessions[0]["thread_id"] == "configured-thread"
-    assert sessions[0]["system_prompt"] == "Answer briefly."
-    assert [tool.name for tool in sessions[0]["app_config"].tools] == ["calculator"]
+    assert code == 0
+    assert sessions[0]["thread_id"] == "t1"
+    assert sessions[0]["app_config"].system_prompt == "Be formal."
+    assert sessions[0]["model_name"] is None

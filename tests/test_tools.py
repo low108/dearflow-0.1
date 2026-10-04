@@ -1,32 +1,31 @@
-from dearflow.config import AppConfig, ToolConfig
-from dearflow.tools import get_available_tools
+from dearflow.config import AppConfig
+from dearflow.tools import ToolRegistry
+
+TIME = "dearflow.tools.builtins:current_time"
+CALC = "dearflow.tools.builtins:calculator"
 
 
-def test_get_available_tools_loads_enabled_configured_tools_and_filters_groups():
-    config = AppConfig(
-        default_model="test-model",
+def _config():
+    return AppConfig(
+        default_model="m",
         tools=[
-            ToolConfig(
-                "current_time",
-                "utility",
-                "dearflow.tools.builtins:current_time",
-            ),
-            ToolConfig(
-                "disabled_time",
-                "utility",
-                "dearflow.tools.builtins:current_time",
-                enabled=False,
-            ),
-            ToolConfig(
-                "calculator",
-                "math",
-                "dearflow.tools.builtins:calculator",
-            ),
+            {"name": "current_time", "group": "utility", "use": TIME},
+            {"name": "disabled", "group": "utility", "use": TIME, "enabled": False},
+            {"name": "calculator", "group": "math", "use": CALC},
         ],
     )
 
-    all_tools = get_available_tools(config)
-    utility_tools = get_available_tools(config, groups={"utility"})
 
-    assert [tool.name for tool in all_tools] == ["current_time", "calculator"]
-    assert [tool.name for tool in utility_tools] == ["current_time"]
+def test_registry_loads_enabled_tools_and_filters_groups():
+    registry = ToolRegistry(_config())
+
+    assert [t.name for t in registry.get_tools()] == ["current_time", "calculator"]
+    assert [t.name for t in registry.get_tools(groups={"utility"})] == ["current_time"]
+
+
+def test_registry_merges_extra_tools_and_skips_duplicates():
+    from dearflow.tools.builtins import calculator
+
+    registry = ToolRegistry(_config(), extra_tools=[calculator])
+
+    assert [t.name for t in registry.get_tools()] == ["current_time", "calculator"]

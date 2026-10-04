@@ -1,4 +1,3 @@
-from dearflow.tools.registry import get_available_tools
+from dearflow.tools.registry import ToolRegistry
 
-__all__ = ["get_available_tools"]
-
+__all__ = ["ToolRegistry"]
