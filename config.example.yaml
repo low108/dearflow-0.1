@@ -36,6 +36,15 @@ context:
     use_model: false      # false = first message, shortened (no extra model call)
     max_words: 6
 
+# HTTP API: `dearflow-gateway` (also `--host`, `--port`). Set api_key before exposing it.
+gateway:
+  host: 127.0.0.1
+  port: 8001
+  api_key: null           # e.g. $GATEWAY_API_KEY -> clients send `Authorization: Bearer <key>`
+  cors_origins: []        # e.g. ["http://localhost:3000"] for a browser UI
+  heartbeat_seconds: 15   # keep-alive comment on idle SSE streams
+  retain_seconds: 120     # finished runs stay joinable from memory this long
+
 # Saved conversations. On: messages are checkpointed to a SQLite file, and thread
 # and run records are kept beside them. Restart with the same --thread-id to
 # continue (also: `dearflow --persist`, `dearflow --list-threads`).

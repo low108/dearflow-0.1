@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS threads (
     user_id    TEXT NOT NULL,
     title      TEXT,
     status     TEXT NOT NULL DEFAULT 'idle',      -- idle | busy
+    metadata   TEXT NOT NULL DEFAULT '{}',        -- JSON object from the client
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -69,6 +70,14 @@ class Database:
             self._conn.execute("PRAGMA journal_mode=WAL")  # readers don't block the writer
         self._lock = threading.RLock()
         self._conn.executescript(_SCHEMA)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Tiny migration: databases made by older versions get columns added later."""
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(threads)")}
+        if "metadata" not in columns:
+            self._conn.execute("ALTER TABLE threads ADD COLUMN metadata TEXT NOT NULL DEFAULT '{}'")
+            self._conn.commit()
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:
         """Run one statement, commit, and return any rows."""

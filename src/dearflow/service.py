@@ -129,6 +129,10 @@ class RunService:
         """Replay a finished (or running) run's log."""
         return [StreamEvent(seq, name, data) for seq, name, data in self._db.events.list(run_id, after_seq)]
 
+    def state(self, thread_id: str) -> dict[str, Any]:
+        """The thread's current state values (empty dict for a thread with no checkpoint)."""
+        return dict(self._agent.graph.get_state({"configurable": {"thread_id": thread_id}}).values or {})
+
     def history(self, thread_id: str) -> list:
         """All messages of a thread, straight from the checkpointer (hidden ones excluded)."""
         snapshot = self._agent.graph.get_state({"configurable": {"thread_id": thread_id}})

@@ -38,7 +38,7 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Memory | `MemoryMiddleware` + debounce queue + LLM updater; facts as Markdown files; pluggable backends | ✅ slice 6: same flow, one JSON file per user |
 | Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ✅ slice 8: SQLite, plain `sqlite3` |
 | Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ✅ slice 9: `RunService.stream` + run log |
-| Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 10 (FastAPI only) |
+| Gateway / UI | FastAPI + Next.js frontend | ✅ slice 10: same routes and body fields, no UI |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
 | Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ⏭ slice 11 |
 | PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ⏭ slice 12 |
@@ -133,6 +133,27 @@ client, `debug`/`tasks`/`checkpoints` modes, subgraph streaming, cancel with rol
 
 Added for teaching: `custom` events from the `task` tool (`subagent.start` / `subagent.end`).
 That makes delegation visible, where DeerFlow emits task events from its background executor.
+
+## Gateway (slice 10): what we kept
+
+Routes, request body and status codes follow `app/gateway/routers/thread_runs.py` and `threads.py`:
+`POST /runs` starts a background run; `/runs/stream` adds SSE with `Content-Location`; `/runs/wait`
+blocks and returns the state; `/join` attaches without owning the run; `/cancel` answers 202 or 204;
+`/events` lists the run log. `RunCreateRequest` is `extra="forbid"` and rejects unsupported options
+by name (`unsupported_run_option`, `unsupported_stream_mode`). `on_disconnect` defaults to `cancel`
+and joins never apply it. `multitask_strategy: reject` means 409 for a busy thread. Other users'
+threads are 404, not 403. Thread ids use DeerFlow's pattern `^[A-Za-z0-9_-]{1,64}$`.
+
+We drop: user accounts (JWT, CSRF, roles, `require_permission`), the LangGraph-Platform assistants
+compat layer, idempotency keys, `rollback`/`interrupt` multitask strategies and cancel-with-rollback,
+checkpoint ids and history endpoints, branches, projects, goals, feedback, uploads, artifacts,
+multi-worker leases and cross-process bridges, pagination endpoints. Auth is one optional API key plus
+an `X-User-Id` header.
+
+Different on purpose: the API is sync Python under async routes (`asyncio.to_thread`), so the
+checkpointer stays the simple `SqliteSaver`; DeerFlow is async end to end. The bridge is one
+in-memory event list per run (`ActiveRun`). Cancel acts between events: a model call already in flight
+finishes first.
 
 ## Planned hardening slices (how DeerFlow does it, and what we keep)
 

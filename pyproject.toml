@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "A compact DeerFlow-inspired LangGraph super agent"
 requires-python = ">=3.12"
 dependencies = [
+  "fastapi>=0.142.2",
   "langchain>=1.3,<2",
   "langchain-mcp-adapters>=0.2",
   "langchain-openai>=1.0,<2",
@@ -15,10 +16,12 @@ dependencies = [
   "langgraph-checkpoint-sqlite>=3.1.1",
   "pydantic>=2.0,<3",
   "pyyaml>=6.0,<7",
+  "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
 dearflow = "dearflow.cli:main"
+dearflow-gateway = "dearflow.gateway:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

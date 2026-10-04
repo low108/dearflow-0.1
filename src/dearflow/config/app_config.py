@@ -161,6 +161,17 @@ class PersistenceConfig(_Config):
     path: str = "data/dearflow.db"  # SQLite file: checkpoints + thread/run records
 
 
+class GatewayConfig(_Config):
+    """The HTTP API (`dearflow-gateway`)."""
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8001, gt=0, lt=65536)
+    api_key: str | None = None  # if set, requests need `Authorization: Bearer <key>`; `$ENV_VAR` allowed
+    cors_origins: list[str] = Field(default_factory=list)
+    heartbeat_seconds: float = Field(default=15, gt=0)  # idle keep-alive on SSE streams
+    retain_seconds: float = Field(default=120, ge=0)  # how long a finished run stays joinable in memory
+
+
 class ContextConfig(_Config):
     """Middleware that manages what the model sees each turn."""
 
@@ -179,6 +190,7 @@ class AppConfig(_Config):
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     subagents: SubagentsConfig = Field(default_factory=SubagentsConfig)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

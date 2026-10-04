@@ -69,6 +69,7 @@ class RunStore:
         return _record(rows[0]) if rows else None
 
     def list(self, thread_id: str, limit: int = 50) -> list[RunRecord]:
+        """Newest first."""
         rows = self._db.execute(
             "SELECT * FROM runs WHERE thread_id = ? ORDER BY created_at DESC, rowid DESC LIMIT ?", (thread_id, limit)
         )

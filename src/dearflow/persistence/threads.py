@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from typing import Any
 
 from dearflow.persistence.database import Database, now
 
@@ -18,10 +20,13 @@ class ThreadRecord:
     status: str
     created_at: str
     updated_at: str
+    metadata: dict[str, Any]
 
 
 def _record(row) -> ThreadRecord:
-    return ThreadRecord(**{key: row[key] for key in row.keys()})
+    values = {key: row[key] for key in row.keys()}
+    values["metadata"] = json.loads(values["metadata"] or "{}")
+    return ThreadRecord(**values)
 
 
 class ThreadStore:
@@ -30,12 +35,12 @@ class ThreadStore:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def ensure(self, thread_id: str, user_id: str) -> ThreadRecord:
+    def ensure(self, thread_id: str, user_id: str, metadata: dict[str, Any] | None = None) -> ThreadRecord:
         """Create the thread on first use. Threads belong to the user who made them."""
         stamp = now()
         self._db.execute(
-            "INSERT OR IGNORE INTO threads (thread_id, user_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (thread_id, user_id, stamp, stamp),
+            "INSERT OR IGNORE INTO threads (thread_id, user_id, metadata, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            (thread_id, user_id, json.dumps(metadata or {}), stamp, stamp),
         )
         return self.get(thread_id)  # type: ignore[return-value]
 
@@ -43,10 +48,11 @@ class ThreadStore:
         rows = self._db.execute("SELECT * FROM threads WHERE thread_id = ?", (thread_id,))
         return _record(rows[0]) if rows else None
 
-    def list(self, user_id: str, limit: int = 50) -> list[ThreadRecord]:
+    def list(self, user_id: str, limit: int = 50, offset: int = 0) -> list[ThreadRecord]:
         """A user's threads, most recently active first."""
         rows = self._db.execute(
-            "SELECT * FROM threads WHERE user_id = ? ORDER BY updated_at DESC LIMIT ?", (user_id, limit)
+            "SELECT * FROM threads WHERE user_id = ? ORDER BY updated_at DESC, rowid DESC LIMIT ? OFFSET ?",
+            (user_id, limit, offset),
         )
         return [_record(r) for r in rows]
 

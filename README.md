@@ -44,6 +44,8 @@ config.yaml ──► AppConfig (pydantic)
 | `RunService.stream` | yields `StreamEvent`s while the agent runs: `metadata`, your chosen modes, `end`; abandoning it marks the run interrupted |
 | `normalize_modes` | allowlist of stream modes (`values`, `updates`, `messages`, `custom`); unknown modes are an error |
 | `RunEventStore` | the run log (`updates`, `custom`, errors, start/end) for replay |
+| `create_app` (gateway) | FastAPI app with DeerFlow's routes: `/api/threads`, `/runs`, `/runs/stream`, `/runs/wait`, `/join`, `/cancel`, `/events` |
+| `RunManager` / `ActiveRun` | runs agents in background threads; buffers events so many clients can watch, join late, or cancel |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -102,6 +104,36 @@ Hidden middleware messages (date, memory) are not sent in `messages`. Every run 
 log (`service.events(run_id)`) with `updates`, `custom`, errors and start/end, but not tokens or
 full snapshots.
 
+## HTTP API
+
+`uv run dearflow-gateway --config config.yaml` (docs at `/docs`). Routes follow DeerFlow's gateway:
+
+| Route | What it does |
+|---|---|
+| `POST /api/threads`, `POST /api/threads/search` | create / list your threads |
+| `GET` / `DELETE /api/threads/{id}` | read (with state values) / delete |
+| `GET /api/threads/{id}/state`, `/messages` | current state / visible conversation |
+| `POST /api/threads/{id}/runs` | start a run in the background, return it at once |
+| `POST /api/threads/{id}/runs/stream` | start and stream SSE (`Content-Location: .../runs/{run_id}`) |
+| `POST /api/threads/{id}/runs/wait` | start, block, return the final state |
+| `GET /api/threads/{id}/runs`, `/runs/{run_id}` | run records |
+| `GET /api/threads/{id}/runs/{run_id}/join` | watch a run (from its start; after it ends, replays the run log) |
+| `POST /api/threads/{id}/runs/{run_id}/cancel` | stop at the next event (`202`, or `204` with `?wait=true`) |
+| `GET /api/threads/{id}/runs/{run_id}/events` | run log (`event_types`, `after_seq`, `limit`) |
+
+```bash
+curl -N -X POST localhost:8001/api/threads/t1/runs/stream -H 'content-type: application/json' \
+  -d '{"input": {"messages": [{"role": "user", "content": "hi"}]}, "stream_mode": ["messages"]}'
+```
+
+Body fields are DeerFlow's (`input`, `context`, `stream_mode`, `on_disconnect`, `multitask_strategy`);
+unknown fields and unsupported options are `422` errors. `context` may set `model_name`,
+`is_plan_mode`, `subagent_enabled`. A second run on a busy thread is `409`.
+`on_disconnect: "cancel"` (default) stops the run when the streaming client leaves; `"continue"`
+keeps it going; `join` observers never cancel it. With `gateway.api_key` set, send
+`Authorization: Bearer <key>`; the `X-User-Id` header then names the user, and other users'
+threads answer `404`.
+
 ## MCP
 
 MCP servers are external programs or URLs that offer tools (GitHub, databases, search).
@@ -148,7 +180,7 @@ uv run pytest -q
 7. ✅ MCP
 8. ✅ Persistence: SQLite checkpointer + thread/run tables
 9. ✅ Streaming: stream modes, run events
-10. FastAPI gateway (SSE endpoint)
+10. ✅ FastAPI gateway (SSE endpoint)
 11. Token usage + token budget
 12. PII redaction
 13. Tool receipts + audit
