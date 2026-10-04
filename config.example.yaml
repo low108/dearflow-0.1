@@ -22,5 +22,19 @@ skills:
   enabled: true
   path: skills
 
+# What the model sees each turn.
+context:
+  timezone: null          # e.g. Asia/Kuala_Lumpur; null = machine zone
+  date_reminder: true     # hidden <current_date> message, about once per day
+  summarization:
+    enabled: true
+    trigger_tokens: 100000
+    keep_messages: 20
+    model: null           # alias for a cheaper summarizer; null = the run's model
+  title:
+    enabled: true
+    use_model: false      # false = first message, shortened (no extra model call)
+    max_words: 6
+
 # Plan mode adds the write_todos task list (also: `dearflow --plan`).
 plan_mode: false

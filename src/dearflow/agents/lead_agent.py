@@ -49,7 +49,7 @@ class LeadAgentFactory:
         run config -> pick model name -> ModelFactory -> model
                    -> SkillCatalog    -> PromptBuilder -> system prompt
                    -> ToolRegistry    -> tools (+ load_skill when skills exist)
-                   -> MiddlewareChain -> middleware (todo guard only in plan mode)
+                   -> MiddlewareChain -> middleware (context + clarification; todo guard in plan mode)
                    -> create_agent(...) -> compiled graph
     """
 
@@ -77,10 +77,16 @@ class LeadAgentFactory:
         model_name = self._app_config.resolve_model(requested if isinstance(requested, str) else None)
 
         plan_mode = bool(configurable.get("is_plan_mode", self._app_config.plan_mode))
-        chain = self._middleware_chain or MiddlewareChain.default(plan_mode=plan_mode)
+        model = self._model_factory.create(model_name)
+        chain = self._middleware_chain or MiddlewareChain.default(
+            plan_mode=plan_mode,
+            context=self._app_config.context,
+            model=model,
+            summary_model=self._summary_model(),
+        )
 
         graph = create_agent(
-            model=self._model_factory.create(model_name),
+            model=model,
             tools=self._tool_registry.get_tools(),
             middleware=chain.build(),
             system_prompt=PromptBuilder(self._app_config.system_prompt, self._skills).build(),
@@ -89,6 +95,13 @@ class LeadAgentFactory:
             checkpointer=self._checkpointer,
         )
         return LeadAgent(graph=graph, model_name=model_name)
+
+    def _summary_model(self):
+        """A separate (usually cheaper) model for summarization, if configured."""
+        alias = self._app_config.context.summarization.model
+        if alias is None:
+            return None
+        return self._model_factory.create(self._app_config.resolve_model(alias))
 
     def _discover_skills(self) -> SkillCatalog:
         skills_config = self._app_config.skills

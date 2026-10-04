@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents.middleware import TodoListMiddleware, hook_config
 from langchain_core.messages import AIMessage, HumanMessage
 
-_REMINDER_FLAG = "dearflow_todo_reminder"
+from dearflow.middlewares.messages import TODO_REMINDER, injected_kind, injected_message
 
 
 class TodoMiddleware(TodoListMiddleware):
@@ -51,13 +51,11 @@ class TodoMiddleware(TodoListMiddleware):
     @staticmethod
     def _reminder(unfinished: list[dict[str, Any]]) -> HumanMessage:
         items = "\n".join(f"- [{t.get('status')}] {t.get('content')}" for t in unfinished)
-        return HumanMessage(
-            content=(
-                "<system_reminder>\nYou still have unfinished todos:\n"
-                f"{items}\nFinish them, or update the list with write_todos if the plan changed, "
-                "before giving your final answer.\n</system_reminder>"
-            ),
-            additional_kwargs={_REMINDER_FLAG: True},
+        return injected_message(
+            "<system_reminder>\nYou still have unfinished todos:\n"
+            f"{items}\nFinish them, or update the list with write_todos if the plan changed, "
+            "before giving your final answer.\n</system_reminder>",
+            TODO_REMINDER,
         )
 
     @staticmethod
@@ -67,7 +65,7 @@ class TodoMiddleware(TodoListMiddleware):
         for message in reversed(messages):
             if not isinstance(message, HumanMessage):
                 continue
-            if not message.additional_kwargs.get(_REMINDER_FLAG):
+            if injected_kind(message) != TODO_REMINDER:
                 break
             count += 1
         return count

@@ -51,6 +51,32 @@ class SkillsConfig(_Config):
     path: str = "skills"
 
 
+class SummarizationConfig(_Config):
+    """Compress old messages once the conversation gets long."""
+
+    enabled: bool = True
+    trigger_tokens: int = Field(default=100_000, gt=0)  # summarize above this many (approx.) tokens
+    keep_messages: int = Field(default=20, gt=0)  # recent messages kept verbatim
+    model: str | None = None  # alias or id; None = the run's own model
+
+
+class TitleConfig(_Config):
+    """Conversation title. Without `use_model` the title is the first message, shortened."""
+
+    enabled: bool = True
+    use_model: bool = False
+    max_words: int = Field(default=6, gt=0)
+
+
+class ContextConfig(_Config):
+    """Middleware that manages what the model sees each turn."""
+
+    timezone: str | None = None  # IANA name such as "Asia/Kuala_Lumpur"; None = machine zone
+    date_reminder: bool = True
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
+    title: TitleConfig = Field(default_factory=TitleConfig)
+
+
 class AppConfig(_Config):
     """Root configuration object, usually loaded from `config.yaml`."""
 
@@ -59,6 +85,7 @@ class AppConfig(_Config):
     models: dict[str, ModelConfig] = Field(default_factory=dict)
     tools: list[ToolConfig] = Field(default_factory=list)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    context: ContextConfig = Field(default_factory=ContextConfig)
     plan_mode: bool = False  # enables write_todos; override per run with configurable.is_plan_mode
 
     @classmethod

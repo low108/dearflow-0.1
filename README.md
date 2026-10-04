@@ -27,6 +27,9 @@ config.yaml ──► AppConfig (pydantic)
 | `PromptBuilder` | builds the system prompt; lists skill names + descriptions only |
 | `ask_clarification` + `ClarificationMiddleware` | model asks you a question; the run ends and your reply starts the next turn |
 | `TodoMiddleware` | plan mode: `write_todos` task list + guard against finishing with open todos |
+| `DynamicContextMiddleware` | injects the current date as a hidden message (keeps the system prompt cacheable) |
+| `SummarizationMiddleware` | LangChain's; compresses old messages past a token threshold |
+| `TitleMiddleware` | sets `state["title"]` after the first exchange |
 | `LeadAgentFactory` | the only composition root; builds the graph |
 | `ToolErrorHandlingMiddleware` | tool exceptions become messages the model can react to |
 
@@ -72,7 +75,7 @@ uv run pytest -q
 1. ✅ Base: typed config, factories, middleware chain
 2. ✅ Prompt + skills
 3. ✅ Core tools (clarification, todos; web search deferred)
-4. Context middleware (date, summarization, title)
+4. ✅ Context middleware (date, summarization, title)
 5. Subagents (`task` tool)
 6. Memory
 7. MCP
