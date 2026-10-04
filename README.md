@@ -91,5 +91,12 @@ uv run pytest -q
 5. ✅ Subagents (`task` tool)
 6. Memory
 7. MCP
-8. Persistence + streaming
-9. FastAPI gateway
+8. Persistence: SQLite checkpointer + thread/run tables
+9. Streaming: stream modes, run events
+10. FastAPI gateway (SSE endpoint)
+11. Token usage + token budget
+12. PII redaction
+13. Tool receipts + audit
+
+Slices 11-13 are the hardening DeerFlow adds around the core. Each is one middleware
+plus a small config section. Design notes are in `docs/deerflow-comparison.md`.

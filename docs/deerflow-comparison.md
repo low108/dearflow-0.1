@@ -36,11 +36,15 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Title | model-written, with retries | ✅ fallback-first, optional model |
 | Subagents | background executor, polling, batches, ledger, receipts, acceptance checks | ✅ `task` tool + registry + executor + limit middleware |
 | Memory | `MemoryMiddleware` + queued LLM updater | ⏭ slice 6 |
-| Persistence / streaming | SQL repos, migrations, run manager, SSE | ⏭ slice 8 (checkpointer + `stream`) |
-| Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 9 (FastAPI only) |
+| Persistence | LangGraph checkpointer (memory/SQLite/Postgres) + SQL tables `threads_meta`, `runs`, `run_events` | ⏭ slice 8 (SQLite only) |
+| Streaming | `StreamBridge` + `RunManager`, SSE, modes `values`/`messages-tuple`/`updates`/... | ⏭ slice 9 |
+| Gateway / UI | FastAPI + Next.js frontend | ⏭ slice 10 (FastAPI only) |
 | **Sandbox** | local/Docker/AIO sandbox, virtual paths, bash, file tools | ✂️ **by design** |
-| Safety & governance | PII redaction, input sanitization, loop detection, finish-reason guards, token budgets, read-before-write | ✂️ |
-| Observability | token usage, tool receipts, progress events | ✂️ |
+| Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ⏭ slice 11 |
+| PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ⏭ slice 12 |
+| Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ⏭ slice 13 |
+| Other safety | input sanitization, loop detection, finish-reason guards, read-before-write | ✂️ |
+| Other observability | progress events, tool output synopsis | ✂️ |
 | Uploads / images / artifacts | uploads middleware, `view_image`, `present_files` | ✂️ (state keys reserved) |
 
 ## Subagents: what DeerFlow actually does
@@ -74,3 +78,55 @@ subagent, and context snapshots. Parallelism comes for free: when the model emit
   The result is the same without extra state.
 - **Enablement.** DeerFlow switches subagents on per run (`subagent_enabled`). We mirror that
   with `subagents.enabled` in config plus `configurable.subagent_enabled` and `--subagents`.
+
+## Planned hardening slices (how DeerFlow does it, and what we keep)
+
+Read from DeerFlow at `agents/middlewares/`, `persistence/`, `backend/app/gateway/`.
+
+### Slice 8: persistence
+- **DeerFlow:** two layers. The LangGraph checkpointer holds thread state and messages
+  (memory, SQLite or Postgres). Separate SQL tables hold metadata: `threads_meta`, `runs`
+  (status, stop reason, token totals), `run_events`. There is no messages table.
+- **Keep:** the same two layers. `SqliteSaver` as checkpointer, plus tiny `threads` and `runs` tables.
+- **Drop:** Postgres, migrations, ownership and users, projects, scheduled tasks.
+
+### Slice 9: streaming
+- **DeerFlow:** `RunManager` tracks runs, `StreamBridge` carries live events, `sse_consumer` turns
+  them into Server-Sent Events. Public modes: `values`, `messages-tuple` (= LangGraph
+  `messages`), `updates`, `debug`, `tasks`, `checkpoints`, `custom`. Unsupported modes are rejected.
+- **Keep:** `agent.stream(..., stream_mode=[...])`, a mode allowlist, and a `Run` record with status.
+- **Drop:** join or reconnect to a running stream, event replay, subgraph streaming.
+
+### Slice 10: gateway
+- `POST /threads/{id}/runs/stream` returns `text/event-stream`; `GET /threads/{id}` reads state.
+
+### Slice 11: token usage + budget
+- **DeerFlow:** `TokenUsageMiddleware` reads `usage_metadata` from each model reply.
+  `TokenBudgetMiddleware` keeps a per-run total. At the soft threshold it queues a warning
+  (inserted as a message at the next model call, so tool-call/result pairs stay intact). At the
+  hard threshold it strips the tool calls and adds a stop message, so the agent gives a final
+  answer instead of raising. Subagent usage is added to the message that launched it.
+- **Keep:** usage totals in state, soft warning, hard stop by stripping tool calls, and
+  subagent usage rolled up into the lead's total. Config: `max_tokens`, `warn_threshold`, `hard_stop_threshold`.
+- **Drop:** separate input/output caps, per-step action attribution.
+- **Depends on:** slice 5 (subagents) and the hidden-message helpers from slice 4.
+
+### Slice 12: PII redaction
+- **DeerFlow:** no model call. Fixed regexes plus checksum validators (email, API key, credit
+  card with Luhn, phone, national ID) replace matches with an HMAC-derived placeholder. The
+  placeholder is stable for the same value but cannot be reversed without `token_secret`
+  (16+ characters). It runs on real user messages before the model call and on remote-content
+  tool results. Off by default; each detector has its own switch.
+- **Keep:** the detectors, the HMAC placeholder, and the two boundaries (user input and tool output).
+- **Drop:** redaction of durable context, MCP-specific scoping, national-ID variants.
+
+### Slice 13: tool receipts + audit
+- **DeerFlow:** `ToolReceiptMiddleware` stamps every tool result with metadata: tool name and
+  call id, status, hashes of the arguments and output, byte count, timestamp. The output
+  itself is not stored. Receipts get display ids `r1..rN`. Subagents are told to cite `[rN]`
+  for every action claim, and the lead checks that each cited id exists and succeeded. The
+  check is advisory: it proves the call happened, not that the claim is right.
+- **Keep:** the stamp, the ledger built from message metadata, `[rN]` citations for subagent
+  reports, and the advisory check.
+- **Drop:** acceptance criteria, bash execution records, render modes other than `delegation_only`.
+- **Depends on:** slice 5 (subagent reports) and slice 8 (so receipts survive restarts).
