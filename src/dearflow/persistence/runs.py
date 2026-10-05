@@ -34,6 +34,9 @@ class RunRecord:
     subagent_tokens: int
     middleware_tokens: int
     token_usage_by_model: dict[str, int]
+    idempotency_key: str | None
+    request_hash: str | None
+    multitask_strategy: str
     created_at: str
     updated_at: str
 
@@ -50,15 +53,39 @@ class RunStore:
     def __init__(self, db: Database) -> None:
         self._db = db
 
-    def start(self, thread_id: str, user_id: str, model_name: str | None = None) -> str:
+    def start(
+        self,
+        thread_id: str,
+        user_id: str,
+        model_name: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
+        multitask_strategy: str = "reject",
+    ) -> str:
         run_id = uuid.uuid4().hex
         stamp = now()
         self._db.execute(
-            "INSERT INTO runs (run_id, thread_id, user_id, status, model_name, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (run_id, thread_id, user_id, RUNNING, model_name, stamp, stamp),
+            "INSERT INTO runs (run_id, thread_id, user_id, status, model_name, idempotency_key, request_hash,"
+            " multitask_strategy, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                run_id,
+                thread_id,
+                user_id,
+                RUNNING,
+                model_name,
+                idempotency_key,
+                request_hash,
+                multitask_strategy,
+                stamp,
+                stamp,
+            ),
         )
         return run_id
+
+    def get_by_idempotency_key(self, idempotency_key: str) -> RunRecord | None:
+        rows = self._db.execute("SELECT * FROM runs WHERE idempotency_key = ?", (idempotency_key,))
+        return _record(rows[0]) if rows else None
 
     def finish(
         self,

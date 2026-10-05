@@ -129,7 +129,8 @@ def test_conversation_survives_a_restart(tmp_path):
     assert [m.content for m in history] == ["I am Ann", "Nice to meet you, Ann"]  # hidden messages excluded
 
     service.invoke("what is my name?", thread_id="t1", user_id="ann")
-    assert model.seen[0] == ["I am Ann", "what is my name?"]  # the model saw the old turn
+    assert all(text.startswith("--- BEGIN USER INPUT ---") for text in model.seen[0])
+    assert "I am Ann" in model.seen[0][0] and "what is my name?" in model.seen[0][1]
     assert [t.thread_id for t in persistence.threads.list("ann")] == ["t1"]
     assert len(persistence.runs.list("t1")) == 2
 

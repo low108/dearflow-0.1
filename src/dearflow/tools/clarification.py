@@ -10,7 +10,7 @@ result goes back to the model" step when every called tool is return_direct.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Required, TypedDict
 
 from langchain_core.tools import tool
 
@@ -25,12 +25,24 @@ ClarificationType = Literal[
 ]
 
 
+class ClarificationFormField(TypedDict, total=False):
+    """One field in a structured clarification form."""
+
+    name: Required[str]
+    label: str
+    type: Literal["text", "textarea", "number", "select", "multi_select", "checkbox", "date"]
+    required: bool
+    options: list[str]
+    placeholder: str
+
+
 @tool(ASK_CLARIFICATION, return_direct=True)
 def ask_clarification(
     question: str,
     clarification_type: ClarificationType,
     context: str | None = None,
     options: list[str] | None = None,
+    fields: list[ClarificationFormField] | None = None,
 ) -> str:
     """Ask the user a question and wait for their answer before continuing.
 
@@ -40,8 +52,8 @@ def ask_clarification(
     (approach_choice), an action is risky or irreversible (risk_confirmation),
     or you want to suggest something and get approval (suggestion).
 
-    Ask ONE clear question. Give `options` when the choices are short and
-    known. Do not call other tools in the same turn: the run stops here and the
-    user's reply starts the next turn.
+    Ask ONE clear question. Give `options` for one choice, or `fields` to
+    collect several values in one form. Do not call other tools in the same
+    turn: the run stops here and the user's reply starts the next turn.
     """
     return "Clarification request processed by middleware"

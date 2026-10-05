@@ -7,7 +7,7 @@ from typing import Any
 from langchain.agents.middleware import TodoListMiddleware, hook_config
 from langchain_core.messages import AIMessage, HumanMessage
 
-from dearflow.middlewares.messages import TODO_REMINDER, injected_kind, injected_message
+from dearflow.middlewares.messages import TODO_CONTEXT, TODO_REMINDER, injected_kind, injected_message
 
 
 class TodoMiddleware(TodoListMiddleware):
@@ -23,6 +23,29 @@ class TodoMiddleware(TodoListMiddleware):
     def __init__(self, *, max_reminders: int = 2) -> None:
         super().__init__()
         self._max_reminders = max_reminders
+
+    def before_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        """Restore checkpointed todos when their original tool call left context."""
+        todos = state.get("todos") or []
+        messages = state.get("messages") or []
+        if not todos or self._todos_are_visible(messages) or self._context_reminder_is_visible(messages):
+            return None
+        items = "\n".join(f"- [{todo.get('status', 'pending')}] {todo.get('content', '')}" for todo in todos)
+        return {
+            "messages": [
+                injected_message(
+                    "<system_reminder>\n"
+                    "Your earlier todo list is no longer visible, but it is still active:\n"
+                    f"{items}\n"
+                    "Continue tracking it and call write_todos whenever an item changes.\n"
+                    "</system_reminder>",
+                    TODO_CONTEXT,
+                )
+            ]
+        }
+
+    async def abefore_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
+        return self.before_model(state, runtime)
 
     @hook_config(can_jump_to=["model"])
     def after_model(self, state: Any, runtime: Any) -> dict[str, Any] | None:
@@ -69,3 +92,18 @@ class TodoMiddleware(TodoListMiddleware):
                 break
             count += 1
         return count
+
+    @staticmethod
+    def _todos_are_visible(messages: list) -> bool:
+        return any(
+            isinstance(message, AIMessage)
+            and any(call.get("name") == "write_todos" for call in message.tool_calls or [])
+            for message in messages
+        )
+
+    @staticmethod
+    def _context_reminder_is_visible(messages: list) -> bool:
+        return any(
+            isinstance(message, HumanMessage) and injected_kind(message) == TODO_CONTEXT
+            for message in messages
+        )

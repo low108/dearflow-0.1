@@ -7,9 +7,12 @@ from collections.abc import Iterable, Sequence
 from langchain.agents.middleware import AgentMiddleware, SummarizationMiddleware
 from langchain_core.language_models import BaseChatModel
 
-from dearflow.config import ContextConfig, SubagentsConfig, TokenBudgetConfig, VerificationConfig
+from dearflow.config import ContextConfig, LoopDetectionConfig, SubagentsConfig, TokenBudgetConfig, VerificationConfig
 from dearflow.middlewares.clarification import ClarificationMiddleware
+from dearflow.middlewares.dangling_tool_call import DanglingToolCallMiddleware
 from dearflow.middlewares.dynamic_context import Clock, DynamicContextMiddleware, make_clock
+from dearflow.middlewares.input_sanitization import InputSanitizationMiddleware
+from dearflow.middlewares.loop_detection import LoopDetectionMiddleware
 from dearflow.memory import MemoryManager
 from dearflow.middlewares.memory import MemoryMiddleware
 from dearflow.middlewares.pii_redaction import PiiRedactionMiddleware
@@ -47,6 +50,7 @@ class MiddlewareChain:
         memory: MemoryManager | None = None,
         inject_memory: bool = True,
         token_budget: TokenBudgetConfig | None = None,
+        loop_detection: LoopDetectionConfig | None = None,
         usage: UsageRegistry | None = None,
         redactor: Redactor | None = None,
         pii_tool_names: Sequence[str] = (),
@@ -56,7 +60,7 @@ class MiddlewareChain:
         """The standard DearFlow pipeline. Later slices add entries here.
 
         Order, outermost first:
-            receipts -> tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> token budget -> todos -> PII redaction -> clarification
+            receipts -> input sanitization -> message repair -> tool errors -> date reminder -> memory -> summarization -> title -> subagent limit -> token budget -> todos -> PII redaction -> clarification
 
         Clarification is last on purpose: `after_model` hooks run in reverse
         order, so it sees the model's answer first and can strip sibling tool
@@ -69,6 +73,8 @@ class MiddlewareChain:
         if verification is not None and verification.receipts_enabled:
             # Outermost, so it also sees results that inner layers rebuilt or turned into errors.
             chain.add(ToolReceiptMiddleware(render_mode=verification.receipts_render_mode))
+        chain.add(InputSanitizationMiddleware())
+        chain.add(DanglingToolCallMiddleware())
         chain.add(ToolErrorHandlingMiddleware())
         if context is not None:
             if context.date_reminder:
@@ -99,6 +105,8 @@ class MiddlewareChain:
             chain.add(SubagentLimitMiddleware(subagents.max_concurrent, subagents.max_total))
         if token_budget is not None and token_budget.enabled and usage is not None:
             chain.add(TokenBudgetMiddleware(token_budget, usage))
+        if loop_detection is not None and loop_detection.enabled:
+            chain.add(LoopDetectionMiddleware(loop_detection, usage))
         if plan_mode:
             chain.add(TodoMiddleware())
         if redactor is not None:

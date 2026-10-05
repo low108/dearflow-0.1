@@ -1,5 +1,6 @@
 import pytest
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
+from langgraph.types import Command
 
 from conftest import FakeModelFactory, ToolCapableFakeModel
 from dearflow.agents import LeadAgentFactory
@@ -42,6 +43,15 @@ def test_catalog_discovers_nested_skills_and_skips_invalid(tmp_path):
     assert SkillCatalog.discover(tmp_path / "missing").names() == []
 
 
+def test_catalog_stops_at_the_first_skill_package_boundary(tmp_path):
+    write_skill(tmp_path, "code-review", "code-review")
+    write_skill(tmp_path, "code-review/examples/demo", "demo-fixture")
+
+    catalog = SkillCatalog.discover(tmp_path)
+
+    assert catalog.names() == ["code-review"]
+
+
 def test_prompt_lists_skills_but_not_their_bodies(tmp_path):
     write_skill(tmp_path, "a", "alpha", "Use for alpha.", "SECRET BODY")
     prompt = PromptBuilder("Base.", SkillCatalog.discover(tmp_path)).build()
@@ -55,10 +65,14 @@ def test_prompt_lists_skills_but_not_their_bodies(tmp_path):
 def test_load_skill_tool_returns_body_or_lists_available(tmp_path):
     write_skill(tmp_path, "a", "alpha", body="Alpha steps.")
     tool = create_load_skill_tool(SkillCatalog.discover(tmp_path))
+    call = {"name": "load_skill", "args": {"name": "alpha"}, "id": "c1", "type": "tool_call"}
 
-    assert "Alpha steps." in tool.invoke({"name": "alpha"})
+    result = tool.invoke(call)
+
+    assert isinstance(result, Command)
+    assert "Alpha steps." in result.update["messages"][0].content
     with pytest.raises(ValueError, match="Available skills: alpha"):
-        tool.invoke({"name": "nope"})
+        tool.invoke({**call, "args": {"name": "nope"}})
 
 
 def test_agent_sees_skill_index_and_loads_a_skill_on_demand(tmp_path):
@@ -80,6 +94,15 @@ def test_agent_sees_skill_index_and_loads_a_skill_on_demand(tmp_path):
 
     assert "- alpha: Use for alpha." in seen_prompts[0]
     assert any(isinstance(m, ToolMessage) and "Alpha steps." in m.content for m in result["messages"])
+    activation = result["skill_context"][0]
+    assert {key: value for key, value in activation.items() if key != "loaded_at"} == {
+        "name": "alpha",
+        "path": str(tmp_path / "a" / "SKILL.md"),
+        "description": "Use for alpha.",
+    }
+    assert activation["loaded_at"] == next(
+        index for index, message in enumerate(result["messages"]) if isinstance(message, ToolMessage)
+    )
 
 
 def test_disabled_skills_add_no_tool_or_prompt_section(tmp_path):

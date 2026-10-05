@@ -21,6 +21,11 @@ class ToolCapableFakeModel(FakeMessagesListChatModel):
         self.bound_tool_names = [getattr(t, "name", str(t)) for t in tools]
         return self
 
+    def with_structured_output(self, *args, **kwargs):
+        raise NotImplementedError(
+            "This fake returns scripted message text, not structured output."
+        )
+
 
 class FakeModelFactory(ModelFactory):
     """Returns a preset model and records which names were requested."""

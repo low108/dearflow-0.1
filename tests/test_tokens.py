@@ -173,11 +173,12 @@ def test_hard_stop_removes_tool_calls_and_the_run_ends_with_an_answer():
     assert run.status == "success" and run.stop_reason == "token_capped"  # a capped run is a normal finish
 
 
-def test_a_final_answer_over_budget_is_left_clean():
+def test_a_final_answer_over_budget_is_marked_capped():
     service, _, _ = service_for([reply("All done.", tokens=(900, 500))], token_budget=BUDGET)
     result = service.invoke("research", thread_id="t1")
 
-    assert result.text == "All done." and result.usage["stop_reason"] is None
+    assert "All done." in result.text and "[TOKEN BUDGET EXCEEDED]" in result.text
+    assert result.usage["stop_reason"] == "token_capped"
 
 
 def test_output_only_limit():

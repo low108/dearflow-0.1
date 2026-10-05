@@ -259,7 +259,12 @@ def test_receipts_are_the_outermost_layer():
 
     names = [type(m).__name__ for m in MiddlewareChain.default(verification=VerificationConfig()).build()]
 
-    assert names[:2] == ["ToolReceiptMiddleware", "ToolErrorHandlingMiddleware"]
+    assert names[:4] == [
+        "ToolReceiptMiddleware",
+        "InputSanitizationMiddleware",
+        "DanglingToolCallMiddleware",
+        "ToolErrorHandlingMiddleware",
+    ]
 
 
 # --- subagents: citations checked ---------------------------------------------------------------

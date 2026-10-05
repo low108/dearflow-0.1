@@ -1,0 +1,787 @@
+{
+  "project": "DearFlow (the simplified project)",
+  "project_root": "/Users/johnathanjohnathan/Documents/dearflow",
+  "audit_date": "2026-10-05",
+  "scope": "Read-only source audit. Did not read config.yaml, credentials, memory contents, or conversation data. These are supported capabilities, not a claim that every optional feature is enabled in the user's current configuration.",
+  "reader_summary": "DearFlow is a small Python application that helps a language model work through a request. The model chooses what to say or which tool to request; the application runs the tools, manages the conversation, applies middleware, and records what happened. One user request can require several model calls.",
+  "source_refs": {
+    "scope": {
+      "path": "README.md",
+      "line": 3,
+      "end_line": 6,
+      "supports": "Compact reconstruction on LangChain/LangGraph; no sandbox, shell or virtual filesystem."
+    },
+    "composition": {
+      "path": "src/dearflow/agents/lead_agent.py",
+      "line": 33,
+      "end_line": 42,
+      "supports": "LeadAgentFactory is the composition root: model, skills/prompt, tools/MCP, middleware, optional subagents, compiled graph."
+    },
+    "build": {
+      "path": "src/dearflow/agents/lead_agent.py",
+      "line": 68,
+      "end_line": 127,
+      "supports": "Model alias/overrides, optional delegation, ordered middleware, system prompt, ThreadState, checkpointer."
+    },
+    "service": {
+      "path": "src/dearflow/service.py",
+      "line": 59,
+      "end_line": 91,
+      "supports": "RunService wraps one invocation and bookkeeping; messages owned by checkpointer."
+    },
+    "streaming": {
+      "path": "src/dearflow/service.py",
+      "line": 93,
+      "end_line": 162,
+      "supports": "metadata → requested streaming modes → end/error; events persisted selectively."
+    },
+    "run_identity": {
+      "path": "src/dearflow/service.py",
+      "line": 270,
+      "end_line": 291,
+      "supports": "Claim thread, create run, run_id root trace UUID, thread/run metadata, shared usage callback."
+    },
+    "run_end": {
+      "path": "src/dearflow/service.py",
+      "line": 294,
+      "end_line": 319,
+      "supports": "Record success/error/interruption and usage; persist title; free thread."
+    },
+    "gateway": {
+      "path": "src/dearflow/gateway/app.py",
+      "line": 23,
+      "end_line": 67,
+      "supports": "FastAPI entry point with persistence, factory, background RunManager and thread/run routers."
+    },
+    "cli": {
+      "path": "src/dearflow/cli.py",
+      "line": 92,
+      "end_line": 124,
+      "supports": "CLI consumes messages/updates/custom events, renders model/question text, tool/subagent status and token totals."
+    },
+    "chain": {
+      "path": "src/dearflow/middlewares/chain.py",
+      "line": 72,
+      "end_line": 114,
+      "supports": "Actual ordered additions and optional-feature gates. Prefer code over stale docstring (docstring omits LoopDetection)."
+    },
+    "sanitization": {
+      "path": "src/dearflow/middlewares/input_sanitization.py",
+      "line": 92,
+      "end_line": 113,
+      "supports": "Sanitization modifies the model-bound copy of user messages using request.override, not saved history."
+    },
+    "pii": {
+      "path": "src/dearflow/middlewares/pii_redaction.py",
+      "line": 25,
+      "end_line": 37,
+      "supports": "PII applies to outgoing real-user copies and selected external tool results, keeps original saved user text, and fails open with warning if redaction breaks."
+    },
+    "skills": {
+      "path": "src/dearflow/skills/tool.py",
+      "line": 15,
+      "end_line": 49,
+      "supports": "Names/descriptions upfront; model requests full instructions through load_skill; tool writes bounded skill_context reference."
+    },
+    "prompt": {
+      "path": "src/dearflow/prompts/builder.py",
+      "line": 89,
+      "end_line": 106,
+      "supports": "System prompt contains base prompt, clarification instructions, optional skill index and optional subagent instructions."
+    },
+    "tools": {
+      "path": "src/dearflow/tools/registry.py",
+      "line": 16,
+      "end_line": 37,
+      "supports": "Configured enabled tools + code-added tools, de-duplicated and optionally group-filtered."
+    },
+    "mcp": {
+      "path": "src/dearflow/mcp/loader.py",
+      "line": 70,
+      "end_line": 114,
+      "supports": "Enabled MCP tools loaded once/cached; servers loaded independently; broken server skipped; tools marked external."
+    },
+    "delegation": {
+      "path": "src/dearflow/tools/task.py",
+      "line": 17,
+      "end_line": 34,
+      "supports": "task asks bounded isolated work; all relevant facts in prompt; several independent task calls may run in parallel; self-report not factual guarantee."
+    },
+    "subagent": {
+      "path": "src/dearflow/subagents/executor.py",
+      "line": 71,
+      "end_line": 127,
+      "supports": "Fresh agent with own prompt, filtered tools and task-only input; final report; metadata tagging."
+    },
+    "subagent_limits": {
+      "path": "src/dearflow/subagents/executor.py",
+      "line": 132,
+      "end_line": 169,
+      "supports": "Sync path catches recursion limit; async path additionally applies timeout_seconds. Do not imply sync task has enforced wall-clock timeout."
+    },
+    "subagent_tools": {
+      "path": "src/dearflow/subagents/spec.py",
+      "line": 7,
+      "end_line": 31,
+      "supports": "Default denylist task/ask_clarification, optional own model, max_turns and configured timeout."
+    },
+    "subagent_middleware": {
+      "path": "src/dearflow/agents/lead_agent.py",
+      "line": 151,
+      "end_line": 162,
+      "supports": "Inherited sanitization/repair and optional shared budget, loop detection, PII. Executor adds receipts/error handling. No automatic lead memory/date/todos/summary/title."
+    },
+    "task_return": {
+      "path": "src/dearflow/tools/task.py",
+      "line": 52,
+      "end_line": 73,
+      "supports": "Subagent final report becomes a ToolMessage; optional receipt citation verdict and evidence in metadata."
+    },
+    "clarification": {
+      "path": "src/dearflow/tools/clarification.py",
+      "line": 1,
+      "end_line": 8,
+      "supports": "Middleware formats question and return_direct ends run without usual next model call."
+    },
+    "clarification_tool": {
+      "path": "src/dearflow/middlewares/clarification.py",
+      "line": 83,
+      "end_line": 145,
+      "supports": "Intercept clarification tool; normal case direct question; non_interactive path provides continuation guidance and goto=model."
+    },
+    "persistence": {
+      "path": "src/dearflow/persistence/setup.py",
+      "line": 19,
+      "end_line": 57,
+      "supports": "Thread checkpoints + metadata tables; file SQLite when enabled, in-memory otherwise; startup frees unfinished runs."
+    },
+    "memory_hooks": {
+      "path": "src/dearflow/middlewares/memory.py",
+      "line": 35,
+      "end_line": 80,
+      "supports": "Before run insert changed nonempty user facts; after run enqueue user/final assistant exchange; returns None after queueing."
+    },
+    "memory_queue": {
+      "path": "src/dearflow/memory/manager.py",
+      "line": 15,
+      "end_line": 21,
+      "supports": "Debounced background extraction, cheap enqueue, flush pending work; failures logged instead of breaking chat."
+    },
+    "memory_flush": {
+      "path": "src/dearflow/memory/manager.py",
+      "line": 48,
+      "end_line": 73,
+      "supports": "Timer batching → extractor → store; exceptions logged."
+    },
+    "memory_store": {
+      "path": "src/dearflow/memory/store.py",
+      "line": 44,
+      "end_line": 96,
+      "supports": "Per-user memory.json facts; deduplication, confidence/cap, approximate token-bounded rendering; atomic writes."
+    },
+    "trace_separate": {
+      "path": "src/dearflow/observability/middleware.py",
+      "line": 1,
+      "end_line": 6,
+      "supports": "Trace hook boundaries; nothing written into conversation state or event log."
+    },
+    "trace_fields": {
+      "path": "src/dearflow/observability/middleware.py",
+      "line": 33,
+      "end_line": 69,
+      "supports": "inputs.before, downstream calls request/response, final result/state_update, handler_calls, calls_truncated."
+    },
+    "trace_optin": {
+      "path": "src/dearflow/observability/middleware.py",
+      "line": 185,
+      "end_line": 210,
+      "supports": "Snapshots opt-in and preserve only implemented hooks/capabilities."
+    },
+    "trace_reading": {
+      "path": "docs/observability.md",
+      "line": 42,
+      "end_line": 61,
+      "supports": "Trace/thread IDs; nested subagent; background memory extraction outside turn totals; Show All; hook naming."
+    },
+    "trace_caveats": {
+      "path": "docs/observability.md",
+      "line": 85,
+      "end_line": 110,
+      "supports": "State deltas vs full state, inclusive wrapper timings, truncation, native traces not globally redacted, missing token usage unknown, snapshots not token deltas."
+    },
+    "usage": {
+      "path": "src/dearflow/usage/tracker.py",
+      "line": 25,
+      "end_line": 67,
+      "supports": "Run token aggregate, input/output/total/calls and by-caller/model splits."
+    },
+    "usage_callback": {
+      "path": "src/dearflow/usage/tracker.py",
+      "line": 95,
+      "end_line": 128,
+      "supports": "Provider-reported tokens for finished model calls across run's lead, nested subagents, middleware model calls."
+    },
+    "calculator": {
+      "path": "src/dearflow/tools/builtins.py",
+      "line": 21,
+      "end_line": 37,
+      "supports": "calculator(left, right, operation), multiply returns product; division by zero raises ValueError."
+    },
+    "hidden_context": {
+      "path": "src/dearflow/middlewares/messages.py",
+      "line": 24,
+      "end_line": 38,
+      "supports": "Hidden injected contexts are HumanMessages with dearflow_injected and hide_from_ui flags; they are not user-typed messages."
+    },
+    "date_hook": {
+      "path": "src/dearflow/middlewares/dynamic_context.py",
+      "line": 31,
+      "end_line": 62,
+      "supports": "Date before_agent state patch, once per day when needed; avoids changing stable system prompt."
+    },
+    "receipt_boundary": {
+      "path": "src/dearflow/middlewares/tool_receipt.py",
+      "line": 24,
+      "end_line": 38,
+      "supports": "Tool result receipt stamp, optional request-only ledger, response metadata stamp, outermost wrapper."
+    }
+  },
+  "components": [
+    {
+      "name": "CLI or HTTP API",
+      "plain": "Two doors into the same agent framework: type into the terminal or call the FastAPI service.",
+      "refs": [
+        "cli",
+        "gateway"
+      ]
+    },
+    {
+      "name": "RunService",
+      "plain": "The turn manager. Claims the conversation, starts a run, tracks usage, streams events, then records the outcome.",
+      "refs": [
+        "service",
+        "streaming",
+        "run_identity",
+        "run_end"
+      ]
+    },
+    {
+      "name": "Lead agent",
+      "plain": "The coordinator running a model-and-tools loop. LangChain/LangGraph handles the steps and state.",
+      "refs": [
+        "composition",
+        "build"
+      ]
+    },
+    {
+      "name": "Chat model",
+      "plain": "Reads its prepared messages and tools, then produces answer text or requests tool calls. It does not execute the tools itself.",
+      "refs": [
+        "build",
+        "service",
+        "tools"
+      ]
+    },
+    {
+      "name": "Tools",
+      "plain": "Python or MCP-backed capabilities exposed to the model. A tool returns data the next model call can use.",
+      "refs": [
+        "tools",
+        "mcp",
+        "build"
+      ]
+    },
+    {
+      "name": "Middleware",
+      "plain": "Code at selected checkpoints around a turn, model call or tool call. It may prepare input, update state, stamp evidence, recover errors or route/stop work.",
+      "refs": [
+        "chain",
+        "trace_fields",
+        "clarification"
+      ]
+    },
+    {
+      "name": "Skills",
+      "plain": "Reusable written instructions. A short index is initially visible; the model requests the full body only when needed.",
+      "refs": [
+        "skills",
+        "prompt"
+      ]
+    },
+    {
+      "name": "Subagents",
+      "plain": "Optional helpers started through the task tool. Each receives a self-contained task, runs its own model/tool loop, then sends a report to the lead.",
+      "refs": [
+        "delegation",
+        "subagent",
+        "task_return"
+      ]
+    },
+    {
+      "name": "Checkpoints and run records",
+      "plain": "Conversation state and administrative history, saved locally in SQLite when persistence is enabled.",
+      "refs": [
+        "persistence",
+        "run_end"
+      ]
+    },
+    {
+      "name": "Long-term memory",
+      "plain": "Selected lasting facts about a user. A background extractor saves facts separately; a future run may load them into hidden context.",
+      "refs": [
+        "memory_hooks",
+        "memory_queue",
+        "memory_store"
+      ]
+    },
+    {
+      "name": "LangSmith",
+      "plain": "A separate trace viewer for what ran: model calls, tools, timing, tokens and optional middleware snapshots. It is not conversation memory.",
+      "refs": [
+        "trace_separate",
+        "trace_optin",
+        "trace_reading"
+      ]
+    }
+  ],
+  "lifecycle": {
+    "definition": "A turn/run means one service invocation for a user message. A model call is one generation within that run. A conversation/thread contains multiple runs.",
+    "order": [
+      {
+        "stage": "before_agent",
+        "plain": "Prepare the run once.",
+        "middleware": [
+          "DynamicContextMiddleware",
+          "MemoryMiddleware"
+        ]
+      },
+      {
+        "stage": "before_model",
+        "plain": "Check saved state before each model step.",
+        "middleware": [
+          "RedactingSummarizationMiddleware (or ordinary SummarizationMiddleware without redactor)",
+          "TodoMiddleware"
+        ]
+      },
+      {
+        "stage": "wrap_model_call → model → return",
+        "plain": "Prepare the outgoing request, call the actual model, then return outward through wrappers.",
+        "middleware_outer_to_inner": [
+          "ToolReceiptMiddleware",
+          "InputSanitizationMiddleware",
+          "DanglingToolCallMiddleware",
+          "TokenBudgetMiddleware",
+          "LoopDetectionMiddleware",
+          "TodoMiddleware",
+          "PiiRedactionMiddleware"
+        ]
+      },
+      {
+        "stage": "after_model",
+        "plain": "Inspect the response and control what may happen next.",
+        "middleware_execution_order": [
+          "ClarificationMiddleware",
+          "TodoMiddleware",
+          "LoopDetectionMiddleware",
+          "TokenBudgetMiddleware",
+          "SubagentLimitMiddleware"
+        ]
+      },
+      {
+        "stage": "wrap_tool_call → tool → return (if requested)",
+        "plain": "Execute allowed tool requests and process their results, normally then go back to before_model.",
+        "middleware_outer_to_inner": [
+          "ToolReceiptMiddleware",
+          "ToolErrorHandlingMiddleware",
+          "PiiRedactionMiddleware",
+          "ClarificationMiddleware"
+        ]
+      },
+      {
+        "stage": "after_agent",
+        "plain": "Finish the whole run: assign title when needed, queue memory extraction.",
+        "middleware_execution_order": [
+          "TitleMiddleware",
+          "MemoryMiddleware"
+        ]
+      }
+    ],
+    "branch_notes": [
+      "If the model answers without tools, normally finish after after_model; Todo may request another model step.",
+      "Interactive clarification returns a question and ends the current run; the user's answer starts a new run.",
+      "Wrappers return in reverse nesting order; those return paths are not additional model calls.",
+      "Feature flags determine which middleware are installed. A hook may return null because no change was needed.",
+      "A before/after state hook returns a patch, not a full merged copy of state."
+    ],
+    "refs": [
+      "chain",
+      "trace_fields",
+      "clarification",
+      "clarification_tool",
+      "memory_hooks"
+    ]
+  },
+  "suggested_diagrams": [
+    {
+      "id": "01-big-picture",
+      "title": "What does DearFlow do?",
+      "question": "Who is responsible for what?",
+      "concept_count": 7,
+      "nodes": [
+        "You",
+        "CLI / API",
+        "RunService",
+        "Lead-agent loop",
+        "Chat model",
+        "Tools",
+        "Subagents"
+      ],
+      "edges": [
+        "You → CLI/API: send a request",
+        "CLI/API → RunService: start a turn",
+        "RunService → Lead-agent loop: run",
+        "Lead-agent loop ↔ Chat model: prepared messages / decision",
+        "Lead-agent loop ↔ Tools: call / result",
+        "Tools ↔ Subagents: optional task / report"
+      ],
+      "caption": "The application runs the work. The model chooses an answer or asks for a tool. Subagents are reached through the task tool.",
+      "notes": "Group Chat model as external model provider and Subagents as optional; do not draw a browser UI that this simplified project does not contain.",
+      "refs": [
+        "scope",
+        "service",
+        "build",
+        "tools",
+        "delegation"
+      ]
+    },
+    {
+      "id": "02-one-turn",
+      "title": "One request can take several model calls",
+      "question": "What happens from a request to a reply?",
+      "concept_count": 7,
+      "nodes": [
+        "Start run",
+        "before_agent",
+        "before_model",
+        "Wrapped model call",
+        "after_model",
+        "Wrapped tool call",
+        "after_agent / finish"
+      ],
+      "edges": [
+        "Start run → before_agent → before_model → Wrapped model call → after_model",
+        "after_model → Wrapped tool call: allowed tool requests",
+        "Wrapped tool call → before_model: ordinary tool results",
+        "after_model → after_agent/finish: final answer",
+        "Wrapped tool call → after_agent/finish: interactive clarification"
+      ],
+      "caption": "before_agent/after_agent bracket the run. Model hooks repeat every model step; tools usually send new information back into the loop.",
+      "notes": "Mark optional reroute from after_model back to model for Todo as a footnote to avoid arrow clutter. Wrapped model call includes request and return path.",
+      "refs": [
+        "chain",
+        "clarification",
+        "trace_fields",
+        "memory_hooks"
+      ]
+    },
+    {
+      "id": "03-message-journey",
+      "title": "The saved message and the model's copy differ",
+      "question": "Where do middleware changes go?",
+      "concept_count": 6,
+      "nodes": [
+        "Saved conversation state",
+        "Context/state hooks",
+        "Outgoing request copy",
+        "Request middleware",
+        "Chat model",
+        "Returned response / state patch"
+      ],
+      "edges": [
+        "Saved conversation state ↔ Context/state hooks: date/memory/summary/todos",
+        "Saved conversation state → Outgoing request copy: prepare a model step",
+        "Outgoing request copy → Request middleware: frame/repair/warn/redact",
+        "Request middleware → Chat model: prepared messages",
+        "Chat model → Returned response/state patch: answer or tool requests",
+        "Returned response/state patch → Saved conversation state: graph merges updates"
+      ],
+      "caption": "Sanitization and user-text PII redaction alter the outgoing copy. Date, memory and summaries can alter saved state. Some middleware changes only metadata or routing.",
+      "notes": "Use a clear state lane and request lane, never show every middleware rewriting the same original message. PII protection is scoped and fails open on redactor exceptions.",
+      "refs": [
+        "sanitization",
+        "pii",
+        "memory_hooks",
+        "chain",
+        "trace_caveats"
+      ]
+    },
+    {
+      "id": "04-tools-skills",
+      "title": "Tools do work; skills explain how to work",
+      "question": "How does the agent gain a capability?",
+      "concept_count": 6,
+      "nodes": [
+        "Model request",
+        "Short skill index",
+        "load_skill tool",
+        "Full skill instructions",
+        "Enabled tools",
+        "Tool result"
+      ],
+      "edges": [
+        "Short skill index → Model request: name + description",
+        "Model request → load_skill tool: request relevant instructions",
+        "load_skill tool → Full skill instructions: return text",
+        "Full skill instructions → Model request: inform next step",
+        "Model request → Enabled tools: ask for an action/data",
+        "Enabled tools → Tool result → Model request: return information"
+      ],
+      "caption": "A skill is text. A tool is executable capability. Loading a skill does not install tools or run its instructions automatically.",
+      "notes": "Mention enabled tools may be configured Python tools, built-ins or MCP tools; task is optional. No sandbox or shell capability is implicit.",
+      "refs": [
+        "skills",
+        "prompt",
+        "tools",
+        "mcp",
+        "scope"
+      ]
+    },
+    {
+      "id": "05-delegation",
+      "title": "Give each helper a complete task",
+      "question": "What does a subagent see and return?",
+      "concept_count": 6,
+      "nodes": [
+        "Lead agent",
+        "Self-contained task prompts",
+        "Helper A",
+        "Helper B",
+        "Filtered tools",
+        "Final reports"
+      ],
+      "edges": [
+        "Lead agent → Self-contained task prompts: split independent work",
+        "Self-contained task prompts → Helper A / Helper B: task calls",
+        "Helper A / Helper B ↔ Filtered tools: each helper's own calls/results",
+        "Helper A / Helper B → Final reports: result and status",
+        "Final reports → Lead agent: combine and check"
+      ],
+      "caption": "Each helper starts fresh. It sees the task text, its own instructions and allowed tools. It does not automatically inherit the lead conversation.",
+      "notes": "Shared token budget, smaller middleware chain. No nested task or ask_clarification in default subagent tool list. Reports/receipt citations are evidence to inspect, not correctness guarantees. Do not call this process/sandbox isolation.",
+      "refs": [
+        "delegation",
+        "subagent",
+        "subagent_tools",
+        "subagent_middleware",
+        "task_return",
+        "usage"
+      ]
+    },
+    {
+      "id": "06-three-records",
+      "title": "Three records answer three different questions",
+      "question": "Where does information live?",
+      "concept_count": 4,
+      "nodes": [
+        "A run",
+        "Conversation + run records",
+        "Long-term user memory",
+        "LangSmith traces"
+      ],
+      "edges": [
+        "A run → Conversation + run records: save state and outcome",
+        "A run → Long-term user memory: queue selected facts after run",
+        "A run → LangSmith traces: optional diagnostic export"
+      ],
+      "caption": "Conversation state: What happened in this thread? Memory: What lasting facts do we know about this user? Traces: How did the program execute?",
+      "notes": "Checkpoint plus threads/runs/events SQLite when persistence enabled; memory per-user JSON via delayed model extraction; LangSmith optional and separate. Memory read arrow returns only on later run preparation; successful enqueue does not prove saved facts. Thread persistence and long-term memory are independent switches.",
+      "refs": [
+        "persistence",
+        "memory_hooks",
+        "memory_flush",
+        "memory_store",
+        "trace_separate",
+        "trace_reading"
+      ]
+    },
+    {
+      "id": "07-observe-change",
+      "title": "Find the exact boundary where something changed",
+      "question": "How do I read a middleware span in LangSmith?",
+      "concept_count": 5,
+      "nodes": [
+        "inputs.before.value",
+        "outputs.calls[0].request.value",
+        "Downstream handler",
+        "outputs.calls[0].response.value",
+        "outputs.result.value"
+      ],
+      "edges": [
+        "inputs.before.value → outputs.calls[0].request.value: this wrapper's request edits",
+        "outputs.calls[0].request.value → Downstream handler: invoke next layer",
+        "Downstream handler → outputs.calls[0].response.value: receive downstream result",
+        "outputs.calls[0].response.value → outputs.result.value: this wrapper's return edits"
+      ],
+      "caption": "Compare the first pair to see outgoing changes; compare the last pair to see return changes. For before/after state hooks, inspect outputs.state_update.value instead.",
+      "notes": "A downstream handler may include many nested wrappers; only an actual model node is a model call. Duration includes nested work, so do not add wrapper times. Snapshots may truncate or mask text. Token totals count actual provider-reported model usage, not each middleware span.",
+      "refs": [
+        "trace_fields",
+        "trace_caveats",
+        "usage_callback"
+      ]
+    }
+  ],
+  "claims_to_avoid": [
+    {
+      "claim": "Every middleware changes model input.",
+      "correction": "Some change state, response tool calls, metadata, routing, tool results, or queue a side effect. No-op hooks are expected."
+    },
+    {
+      "claim": "before_agent happens before every model call.",
+      "correction": "It prepares the whole invocation; before_model is the repeating model-step hook."
+    },
+    {
+      "claim": "One LangSmith span equals one model call.",
+      "correction": "Middleware spans nest around downstream work. Count actual LLM/model calls."
+    },
+    {
+      "claim": "Summing all span tokens/timings gives the bill/latency.",
+      "correction": "Parent and wrapper values include children. Use actual model call usage / root totals, not additive nested spans."
+    },
+    {
+      "claim": "The outgoing prompt is exactly the saved history.",
+      "correction": "Sanitization/PII and warnings may exist only in the request copy; state hooks can independently add hidden context."
+    },
+    {
+      "claim": "The user sees every hidden message.",
+      "correction": "Date/memory hide_from_ui messages are omitted from conversation history presentation and message streaming."
+    },
+    {
+      "claim": "A passed memory hook means memory was learned.",
+      "correction": "after_agent can return null after merely queueing; inspect extractor result, saved facts, and future injection."
+    },
+    {
+      "claim": "Run token totals always include background memory extraction.",
+      "correction": "Background extraction normally runs outside the turn context and has additional usage/separate traces."
+    },
+    {
+      "claim": "No PII ever reaches a model or trace.",
+      "correction": "Redaction covers known patterns and scoped boundaries, can fail open, and custom snapshot masking does not globally redact native traces."
+    },
+    {
+      "claim": "Subagents inherit the complete lead context, all middleware, and are sandboxed.",
+      "correction": "Fresh task-only context and filtered tools; smaller middleware chain; no process or filesystem sandbox is provided."
+    },
+    {
+      "claim": "Every configured subagent timeout is enforced in the CLI's synchronous path.",
+      "correction": "async arun uses wait_for; sync run does not enforce wall time. Both catch graph recursion limit."
+    },
+    {
+      "claim": "Tool receipts prove a report's statements are true.",
+      "correction": "They provide execution evidence; citation resolution does not validate claim correctness."
+    },
+    {
+      "claim": "All 14 middleware are unconditionally installed.",
+      "correction": "Receipts/date/memory/summary/title/subagent limits/budget/loops/todo/PII have settings or mode gates. This audit did not inspect secret-bearing runtime config."
+    },
+    {
+      "claim": "The simplified app includes full DeerFlow frontend, sandbox or virtual filesystem.",
+      "correction": "Describe implemented CLI/FastAPI agent framework; README explicitly excludes sandbox/shell/virtual filesystem."
+    }
+  ],
+  "requested_diagram_addenda": {
+    "two_model_calculator": {
+      "title": "A tool round trip: 17 × 23",
+      "is_illustrative": true,
+      "steps": [
+        "User: Use the calculator to multiply 17 by 23.",
+        "Model call 1 emits tool call calculator(left=17, right=23, operation=\"multiply\").",
+        "After-model guards allow the call; tool wrappers surround actual Python execution.",
+        "calculator returns 391 (float values may serialize as 391.0).",
+        "ToolMessage with matching tool_call_id enters conversation state.",
+        "Model call 2 sees the original request, its tool call and the result, then answers 391."
+      ],
+      "limitations": "Label as an illustrative successful path with calculator enabled. Exact wording/tool choice/model-call count is model-dependent. A tool call proposal is not execution evidence. Do not label tool execution a model call.",
+      "refs": [
+        "calculator",
+        "tools",
+        "chain",
+        "receipt_boundary"
+      ]
+    },
+    "memory_save_recall": {
+      "title": "Remember now, use it on a later turn",
+      "steps": [
+        "Turn A: user states a lasting preference.",
+        "after_agent queues the latest user/final-assistant exchange.",
+        "A debounce timer or explicit flush runs extraction outside the main turn.",
+        "Valid extracted facts are merged into per-user memory.json.",
+        "Turn B before_agent reads facts for the same user_id.",
+        "If enabled, nonempty and changed, a hidden <memory> message is inserted before the user message."
+      ],
+      "limitations": "A quick next turn may arrive before background saving finishes. Not every statement becomes a fact. Extraction failures are logged; the original chat can still succeed. Thread persistence and user memory are different features.",
+      "refs": [
+        "memory_hooks",
+        "memory_queue",
+        "memory_flush",
+        "memory_store",
+        "trace_reading"
+      ]
+    },
+    "state_request_metadata": {
+      "title": "Three views of the same run",
+      "columns": [
+        {
+          "name": "Stored state",
+          "contains": "Conversation messages plus optional title, todos and other state; may include hidden date/memory context. Real user text remains original when only request sanitization/PII copy changes occur."
+        },
+        {
+          "name": "Model request",
+          "contains": "Prepared copy of messages and system prompt; request wrappers may frame tags, repair history, add warnings/receipt ledger and redact recognized user PII."
+        },
+        {
+          "name": "Trace metadata",
+          "contains": "Labels such as thread_id, dearflow_run_id, dearflow_middleware, dearflow_hook. These describe execution; they do not automatically become prompt text."
+        }
+      ],
+      "limitations": "State is more than visible chat history. A custom snapshot is a bounded/possibly masked diagnostic view, not a full wire-payload archive. The native model input is the best view of provider-facing messages; schemas/settings can be elsewhere.",
+      "refs": [
+        "sanitization",
+        "pii",
+        "hidden_context",
+        "receipt_boundary",
+        "trace_fields",
+        "run_identity",
+        "trace_caveats"
+      ]
+    },
+    "trace_tree": {
+      "title": "Read a trace as nested work",
+      "schematic_tree": [
+        "DearFlow (root turn / run_id)",
+        "  before-agent hook snapshots",
+        "  model step",
+        "    middleware.<Class>.wrap_model_call ... (nested wrappers)",
+        "      actual chat-model call",
+        "  tools step",
+        "    task tool (when delegated)",
+        "      subagent:<name>",
+        "        helper model/tool steps",
+        "  after-agent hook snapshots"
+      ],
+      "labels": "Simplified schematic: native LangChain hook nodes and async a-prefix names may also appear. Actual graph ordering places repeated before_model/after_model nodes around each model step, omitted here for readability. Show All reveals hidden wrapper spans.",
+      "identity": "RunService root run_id UUID equals durable DearFlow run ID; root name DearFlow; child metadata thread_id and dearflow_run_id link the run. Subagent config run_name subagent:<name>, dearflow_caller=subagent, dearflow_agent=<name>.",
+      "tokens": "UsageCallback counts provider-reported input/output usage once per finished actual model call. RunUsage groups totals by lead_agent/subagent/middleware and by model. Tool calls and middleware wrappers do not themselves consume model tokens unless they invoke a model. A middleware title/summary model call does consume tokens. Background memory extraction usually sits outside these service totals.",
+      "limits": "Do not add parent totals and child totals. Do not add nested wrapper durations. If provider usage missing, local count can be zero while usage is unknown. LangSmith dollar cost requires correct model pricing configuration.",
+      "refs": [
+        "run_identity",
+        "subagent",
+        "trace_fields",
+        "trace_reading",
+        "trace_caveats",
+        "usage",
+        "usage_callback"
+      ]
+    }
+  }
+}

@@ -16,6 +16,9 @@ from langchain_core.tools import BaseTool
 from langgraph.errors import GraphRecursionError
 
 from dearflow.middlewares.tool_error_handling import ToolErrorHandlingMiddleware
+from dearflow.config import ObservabilityConfig
+from dearflow.observability import instrument_middlewares
+from dearflow.pii import Redactor
 from dearflow.middlewares.tool_receipt import ToolReceiptMiddleware
 from dearflow.receipts import Receipt, extract_citing_turn_receipts
 from dearflow.text import text_of
@@ -81,7 +84,11 @@ class SubagentExecutor:
         model_resolver,
         extra_middleware: Sequence[Any] = (),
         receipts: bool = False,
+        observability: ObservabilityConfig | None = None,
+        trace_redactor: Redactor | None = None,
     ) -> None:
+        self._observability = observability or ObservabilityConfig()
+        self._trace_redactor = trace_redactor
         self._receipts = receipts  # subagents always see their receipts: that is where citations get written
         self._tools = list(tools)
         self._extra_middleware = list(extra_middleware)  # e.g. the token budget, shared with the lead agent
@@ -93,11 +100,15 @@ class SubagentExecutor:
         return create_agent(
             model=model,
             tools=filter_tools(self._tools, spec.tools, spec.disallowed_tools),
-            middleware=[
-                *([ToolReceiptMiddleware(render_mode="always")] if self._receipts else []),
-                ToolErrorHandlingMiddleware(),
-                *self._extra_middleware,
-            ],
+            middleware=instrument_middlewares(
+                [
+                    *([ToolReceiptMiddleware(render_mode="always")] if self._receipts else []),
+                    ToolErrorHandlingMiddleware(),
+                    *self._extra_middleware,
+                ],
+                self._observability,
+                redactor=self._trace_redactor,
+            ),
             system_prompt=spec.system_prompt,
         )
 
@@ -105,7 +116,11 @@ class SubagentExecutor:
     def _run_config(spec: SubagentSpec) -> dict[str, Any]:
         # One turn = a model step + a tools step, plus the final answer step.
         # The tag lets the usage counter tell subagent model calls from the lead agent's.
-        return {"recursion_limit": spec.max_turns * 2 + 1, "metadata": {CALLER_KEY: SUBAGENT}}
+        return {
+            "recursion_limit": spec.max_turns * 2 + 1,
+            "run_name": f"subagent:{spec.name}",
+            "metadata": {CALLER_KEY: SUBAGENT, "dearflow_agent": spec.name},
+        }
 
     @staticmethod
     def _inputs(prompt: str) -> dict[str, Any]:

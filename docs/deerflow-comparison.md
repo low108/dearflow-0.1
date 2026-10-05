@@ -12,7 +12,7 @@ what an agent is. A slice is in scope only if it teaches a core idea.
 
 | | DeerFlow | DearFlow |
 |---|---|---|
-| Middleware files | 56 (`agents/middlewares/`) | 8 |
+| Middleware files | 56 (`agents/middlewares/`) | 16 plus the package export |
 | `lead_agent/agent.py` + `prompt.py` | 1,426 + 1,165 lines | ~110 + ~55 lines |
 | Subagent package | 20+ modules, ~6k lines | 6 modules, ~386 lines (incl. `task` tool + limit middleware) |
 | Clarification middleware | 579 lines | 94 lines |
@@ -25,12 +25,13 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Area | DeerFlow | DearFlow |
 |---|---|---|
 | Lead agent | `make_lead_agent`, runtime flags via `configurable` | ✅ `LeadAgentFactory.build(run_config)` |
+| Thread state | custom reducers for artifacts, todos, delegations, goals and skill context | ✅ same reducer semantics, with smaller plain `TypedDict` entries |
 | Config | big `AppConfig`, env substitution, hot reload | ✅ small pydantic `AppConfig`, `extra=forbid` |
 | Models | many providers, thinking/vision flags, retries | ✅ one provider via `init_chat_model` |
 | Tools | config groups + MCP + deferred `tool_search` | ✅ config tools + builtins + MCP; ✂️ deferred tool loading |
-| Skills | activation middleware, allowed-tools policy, skill package review | ✅ `load_skill` + name/description index; ✂️ policy/authorization |
-| Clarification | middleware intercepts `ask_clarification`, ends run | ✅ same |
-| Todos | `TodoMiddleware` with context-loss recovery | ✅ guard with reminder budget; ✂️ recovery |
+| Skills | activation middleware, allowed-tools policy, skill package review | ✅ package-boundary discovery + `load_skill` + durable activation reference; ✂️ policy/authorization |
+| Clarification | middleware intercepts `ask_clarification`, validates forms, handles malformed calls and honors non-interactive runs | ✅ same control flow and structured form artifact; smaller validation surface |
+| Todos | `TodoMiddleware` with reducer and context-loss recovery | ✅ reducer, completion guard and `before_model` recovery reminder; ✂️ reminder budget |
 | Date / dynamic context | 806-line middleware (memory, date, more) | ✅ date reminder only |
 | Summarization | custom, skill/tool-aware | ✅ LangChain built-in |
 | Title | model-written, with retries | ✅ fallback-first, optional model |
@@ -43,7 +44,9 @@ Legend: ✅ same idea, simplified · ⏭ planned · ✂️ deliberately dropped
 | Token usage + budget | usage logging, per-run budget with soft warning and hard stop | ✅ slice 11 |
 | PII redaction | regex detectors + HMAC placeholders at model/tool boundaries | ✅ slice 12 |
 | Tool receipts | hashed audit record per tool call, `[rN]` citations checked against the ledger | ✅ slice 13 |
-| Other safety | input sanitization, loop detection, finish-reason guards, read-before-write | ✂️ |
+| Message integrity | request-scoped input framing + dangling/malformed/orphan tool-call repair | ✅ slice 14 |
+| Loop detection | sliding-window identical-call and per-tool-frequency guards | ✅ slice 15: identical trailing call sets + persisted stop reason; ✂️ frequency layer |
+| Other safety | finish-reason guards, read-before-write | ✂️ |
 | Other observability | progress events, tool output synopsis | ✂️ |
 | Uploads / images / artifacts | uploads middleware, `view_image`, `present_files` | ✂️ (state keys reserved) |
 
@@ -111,9 +114,13 @@ DeerFlow splits storage in two: the LangGraph checkpointer holds messages (memor
 and SQL tables hold metadata (`threads_meta`, `runs`, `run_events`). It allows one pending or running
 run per thread (`multitask_strategy: reject`) and stores a preview on each run (`first_human_message`,
 `last_ai_message`, `message_count`). We keep all of that, as `threads` and `runs` tables in one SQLite
-file, written with plain `sqlite3` instead of SQLAlchemy, plus crash recovery at startup.
+file, written with plain `sqlite3` instead of SQLAlchemy, plus crash recovery at startup. The run row
+also persists a user-and-thread-scoped idempotency key fingerprint, request hash, and multitask
+strategy. `rollback` snapshots LangGraph state before a run and uses `Overwrite` for reducer-backed
+channels when restoring it, preventing interrupted messages, todos, artifacts, goals, delegations,
+or skill context from being merged back in.
 
-We drop: Postgres, migrations, ORM, multi-worker leases and cancel flags, idempotency keys, projects,
+We drop: Postgres, a migration framework, ORM, multi-worker leases and durable cancel flags, projects,
 `run_events` (comes back with streaming in slice 9), token columns (slice 11), per-user access checks
 (a thread records its owner; the gateway in slice 10 will enforce it), and async savers (slice 10).
 
@@ -145,10 +152,15 @@ and joins never apply it. `multitask_strategy: reject` means 409 for a busy thre
 threads are 404, not 403. Thread ids use DeerFlow's pattern `^[A-Za-z0-9_-]{1,64}$`.
 
 We drop: user accounts (JWT, CSRF, roles, `require_permission`), the LangGraph-Platform assistants
-compat layer, idempotency keys, `rollback`/`interrupt` multitask strategies and cancel-with-rollback,
+compat layer, the `interrupt` multitask strategy and cancel-endpoint rollback,
 checkpoint ids and history endpoints, branches, projects, goals, feedback, uploads, artifacts,
 multi-worker leases and cross-process bridges, pagination endpoints. Auth is one optional API key plus
 an `X-User-Id` header.
+
+We keep request idempotency (`Idempotency-Key`, maximum 255 characters): the same logical request
+returns the original run, a changed request gets 409, and admission is serialized inside one Gateway
+process so simultaneous retries cannot create duplicates. We also keep `multitask_strategy: rollback`:
+it interrupts the active run, restores that run's pre-run checkpoint, and starts the replacement.
 
 Different on purpose: the API is sync Python under async routes (`asyncio.to_thread`), so the
 checkpointer stays the simple `SqliteSaver`; DeerFlow is async end to end. The bridge is one
@@ -170,8 +182,7 @@ message that dispatched it (`SubagentTokenCollector` + a merge step in `TokenUsa
 (`UsageCallback`) on the run config. LangChain callbacks flow into nested agents, so the lead agent, subagents and
 middleware model calls are all seen by one counter, tagged by caller, with no message surgery. Consequences: tokens from
 model calls outside a run (memory extraction in its timer thread) are not counted, and the budget only works under
-`RunService`. A hard stop on a message that already has no tool calls leaves the answer untouched (DeerFlow appends the
-notice anyway). We drop per-step attribution metadata for the UI, the `context_usage` block, and cache-token accounting.
+`RunService`. We drop per-step attribution metadata for the UI, the `context_usage` block, and cache-token accounting.
 
 ## PII redaction (slice 12): what we kept
 
@@ -211,9 +222,37 @@ END of the request (DeerFlow inserts it at the start). Status comes from `ToolMe
 and their deterministic file/test checks, the bash execution records, the selective judge model, step events, and per-tool metadata
 normalization. A subagent that failed or timed out gets an error-status result and no verdict.
 
+## Message integrity (slice 14): what we kept
+
+`InputSanitizationMiddleware` temporarily frames every genuine user turn and escapes
+reserved framework tags before the request reaches the model. The checkpoint keeps the
+original text. `DanglingToolCallMiddleware` inserts error results for calls interrupted
+before they returned, normalizes malformed names/arguments/ids, puts existing results
+immediately after their calls, and omits orphan results whose calls disappeared during
+summarization. These repairs are also request-only and apply to lead agents and subagents.
+
+We drop DeerFlow's larger provenance vocabulary, transport-specific
+`original_user_content` handling, raw provider-payload recovery and ambiguous parallel
+missing-id matching. The compact implementation keeps the core strict-provider contract:
+every serialized call has a usable identity and exactly one causally ordered result.
+
+## Loop detection (slice 15): what we kept
+
+The guard hashes the semantic call set—tool names plus complete arguments, excluding
+provider call IDs—within the current user turn. At `warn_threshold` it appends a
+request-only warning after the completed tool results. At `hard_limit`, `after_model`
+removes the new calls before LangGraph can route to the tools node and appends a forced
+stop explanation. Lead agents and subagents share the guard and the run record exposes
+`stop_reason: loop_capped`.
+
+We keep exact arguments so pagination and other changing calls count as progress. We
+drop DeerFlow's second, per-tool-frequency detector, LRU run-scope registry, audit
+events and tool-specific argument normalization. Those improve large production runs
+but are not required to teach or enforce the core repetition boundary.
+
 ## Where this leaves DearFlow
 
-All 13 slices are built. Everything DeerFlow does around the agent loop that we deliberately leave out is listed under each slice above;
+All 15 slices are built. Everything DeerFlow does around the agent loop that we deliberately leave out is listed under each slice above;
 the sandbox and its file and shell tools are the largest piece and are out of scope by design.
 
 ## How the hardening slices were planned (kept for reference: how DeerFlow does it, and what we keep)

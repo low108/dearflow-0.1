@@ -2,51 +2,32 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, NotRequired
-
-from langchain.agents import AgentState, create_agent
+from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph.state import CompiledStateGraph
 
 from dearflow.config import AppConfig
 from dearflow.mcp import McpToolLoader
 from dearflow.config import expand_env
 from dearflow.memory import FactExtractor, MemoryManager, MemoryStore
-from dearflow.middlewares import MiddlewareChain, PiiRedactionMiddleware, TokenBudgetMiddleware
+from dearflow.middlewares import (
+    DanglingToolCallMiddleware,
+    InputSanitizationMiddleware,
+    LoopDetectionMiddleware,
+    MiddlewareChain,
+    PiiRedactionMiddleware,
+    TokenBudgetMiddleware,
+)
 from dearflow.pii import make_redactor
 from dearflow.models import ModelFactory
+from dearflow.observability import instrument_middlewares
 from dearflow.prompts import PromptBuilder
 from dearflow.skills import SkillCatalog, create_load_skill_tool
 from dearflow.subagents import SubagentExecutor, SubagentRegistry
 from dearflow.tools import ToolRegistry, ask_clarification, create_task_tool
 from dearflow.usage import UsageRegistry
-
-
-class ThreadState(AgentState):
-    """Conversation state shared by the graph and middleware.
-
-    `messages` comes from AgentState. The optional keys are reserved for later
-    slices (todos, title, summaries, ...), so the schema is stable from day one.
-    """
-
-    title: NotRequired[str]
-    todos: NotRequired[list[dict[str, Any]]]
-    artifacts: NotRequired[list[str]]
-    summary_text: NotRequired[str]
-    delegations: NotRequired[list[dict[str, Any]]]
-    skill_context: NotRequired[list[dict[str, Any]]]
-    uploaded_files: NotRequired[list[dict[str, Any]]]
-
-
-@dataclass(frozen=True)
-class LeadAgent:
-    """A built agent: the runnable graph plus the model it resolved to."""
-
-    graph: CompiledStateGraph
-    model_name: str
-    usage: UsageRegistry  # per-run token counters; `RunService` opens one for each run
+from dearflow.agents.lead_agent_result import LeadAgent
+from dearflow.agents.thread_state import ThreadState
 
 
 class LeadAgentFactory:
@@ -103,6 +84,8 @@ class LeadAgentFactory:
                 model_resolver=self._create_model,
                 extra_middleware=self._subagent_middleware(),
                 receipts=self._app_config.verification.receipts_enabled,
+                observability=self._app_config.observability,
+                trace_redactor=self._redactor,
             )
             tools = [*tools, create_task_tool(executor, registry)]
 
@@ -116,6 +99,7 @@ class LeadAgentFactory:
             memory=self.memory,
             inject_memory=self._app_config.memory.injection_enabled,
             token_budget=self._app_config.token_budget,
+            loop_detection=self._app_config.loop_detection,
             usage=self.usage,
             redactor=self._redactor,
             verification=self._app_config.verification,
@@ -134,7 +118,7 @@ class LeadAgentFactory:
         graph = create_agent(
             model=model,
             tools=tools,
-            middleware=chain.build(),
+            middleware=instrument_middlewares(chain.build(), self._app_config.observability, redactor=self._redactor),
             system_prompt=prompt,
             state_schema=ThreadState,
             context_schema=dict,
@@ -168,7 +152,11 @@ class LeadAgentFactory:
         """What subagents inherit: the run's token budget (they stop when the whole run is over)
         and PII redaction."""
         budget = self._app_config.token_budget
-        extra = [TokenBudgetMiddleware(budget, self.usage)] if budget.enabled else []
+        extra = [InputSanitizationMiddleware(), DanglingToolCallMiddleware()]
+        if budget.enabled:
+            extra.append(TokenBudgetMiddleware(budget, self.usage))
+        if self._app_config.loop_detection.enabled:
+            extra.append(LoopDetectionMiddleware(self._app_config.loop_detection, self.usage))
         if self._redactor is not None:  # outside content reaches subagents too
             extra.append(PiiRedactionMiddleware(self._redactor, self._app_config.pii_redaction.tool_names))
         return extra

@@ -71,6 +71,23 @@ token_budget:
   warn_threshold: 0.8
   hard_stop_threshold: 1.0
 
+# Prevent a model from calling the same tool with the same arguments forever.
+# A warning is added only to the next model request; at the hard limit, the new
+# call is removed before it reaches the tools node.
+loop_detection:
+  enabled: true
+  warn_threshold: 3
+  hard_limit: 5
+  window_size: 20
+
+# Optional middleware snapshots in LangSmith (see docs/observability.md).
+# Export requires LANGSMITH_TRACING=true and LANGSMITH_API_KEY in the process environment.
+# capture_content controls custom snapshots only; native LangSmith traces have their own payloads.
+observability:
+  middleware_snapshots: false
+  capture_content: false      # true includes bounded, redacted messages and tool arguments/results
+  max_snapshot_chars: 20000   # per snapshot; larger payloads are marked truncated
+
 # HTTP API: `dearflow-gateway` (also `--host`, `--port`). Set api_key before exposing it.
 gateway:
   host: 127.0.0.1

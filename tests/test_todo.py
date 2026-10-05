@@ -4,6 +4,7 @@ from conftest import FakeModelFactory, ToolCapableFakeModel
 from dearflow.agents import LeadAgentFactory
 from dearflow.config import AppConfig
 from dearflow.middlewares import MiddlewareChain, TodoMiddleware, ToolErrorHandlingMiddleware
+from dearflow.middlewares.messages import TODO_CONTEXT, injected_kind
 
 OPEN = [{"content": "step 1", "status": "pending"}]
 DONE = [{"content": "step 1", "status": "completed"}]
@@ -18,6 +19,15 @@ def test_guard_sends_model_back_when_todos_are_open():
 
     assert update["jump_to"] == "model"
     assert "step 1" in update["messages"][0].content
+
+
+def test_before_model_restores_todos_when_the_original_tool_call_was_summarized_away():
+    update = TodoMiddleware().before_model(state([HumanMessage("continue")], OPEN), None)
+
+    reminder = update["messages"][0]
+    assert injected_kind(reminder) == TODO_CONTEXT
+    assert "[pending] step 1" in reminder.content
+    assert "write_todos" in reminder.content
 
 
 def test_guard_allows_finish_when_all_done_or_still_calling_tools():
@@ -85,4 +95,10 @@ def test_plan_mode_is_off_by_default_and_overridable_per_run():
 
 def test_default_chain_order_puts_clarification_last():
     names = [type(m).__name__ for m in MiddlewareChain.default(plan_mode=True).build()]
-    assert names == ["ToolErrorHandlingMiddleware", "TodoMiddleware", "ClarificationMiddleware"]
+    assert names == [
+        "InputSanitizationMiddleware",
+        "DanglingToolCallMiddleware",
+        "ToolErrorHandlingMiddleware",
+        "TodoMiddleware",
+        "ClarificationMiddleware",
+    ]

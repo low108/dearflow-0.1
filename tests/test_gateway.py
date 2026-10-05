@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import json
 import threading
 import time
@@ -7,6 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
+from pydantic import PrivateAttr
 
 from conftest import FakeModelFactory, ToolCapableFakeModel
 from dearflow.config import AppConfig
@@ -24,6 +26,19 @@ class GatedModel(ToolCapableFakeModel):
         if self.gate is not None:
             assert self.gate.wait(10), "test never released the model"
         return super()._generate(*args, **kwargs)
+
+
+class SelectiveGatedModel(ToolCapableFakeModel):
+    """Blocks its second model call so a test can hold one run open."""
+
+    gate: Any
+    _calls: int = PrivateAttr(default=0)
+
+    def _generate(self, messages, *args, **kwargs):
+        self._calls += 1
+        if self._calls == 2:
+            assert self.gate.wait(10), "test never released the model"
+        return super()._generate(messages, *args, **kwargs)
 
 
 def body(text="hello", **extra):
@@ -52,8 +67,10 @@ def wait_for_status(client, thread, run_id, *, want_not="running", headers=None)
 def make_client():
     clients = []
 
-    def build(responses=None, *, gate=None, **config):
-        model = GatedModel(responses=responses if responses is not None else [AIMessage(content="Hello there")], gate=gate)
+    def build(responses=None, *, gate=None, model=None, **config):
+        model = model or GatedModel(
+            responses=responses if responses is not None else [AIMessage(content="Hello there")], gate=gate
+        )
         factory = FakeModelFactory(model)
         app = create_app(
             AppConfig(default_model="fake", gateway={"heartbeat_seconds": 0.2, **config.pop("gateway", {})}, **config),
@@ -156,6 +173,45 @@ def test_background_run_then_poll_then_read_messages(make_client):
     assert [r["run_id"] for r in client.get("/api/threads/t1/runs").json()] == [started["run_id"]]
 
 
+def test_idempotency_key_reuses_the_original_run_and_rejects_changed_input(make_client):
+    client = make_client(responses=[AIMessage(content="first answer"), AIMessage(content="other thread")])
+    headers = {"Idempotency-Key": "request-123"}
+
+    first = client.post("/api/threads/t1/runs", json=body("same request"), headers=headers)
+    assert first.status_code == 200
+    first_run = first.json()
+    wait_for_status(client, "t1", first_run["run_id"])
+
+    reused = client.post("/api/threads/t1/runs", json=body("same request"), headers=headers)
+    conflict = client.post("/api/threads/t1/runs", json=body("changed request"), headers=headers)
+    other_thread = client.post("/api/threads/t2/runs", json=body("same request"), headers=headers)
+
+    assert reused.status_code == 200 and reused.json()["run_id"] == first_run["run_id"]
+    assert conflict.status_code == 409 and "different request" in conflict.text
+    assert other_thread.status_code == 200 and other_thread.json()["run_id"] != first_run["run_id"]
+    assert len(client.get("/api/threads/t1/runs").json()) == 1
+
+
+def test_concurrent_idempotent_retries_share_one_run(make_client):
+    gate = threading.Event()
+    client = make_client(gate=gate)
+    headers = {"Idempotency-Key": "simultaneous"}
+    barrier = threading.Barrier(2)
+
+    def start():
+        barrier.wait()
+        return client.post("/api/threads/t1/runs", json=body("same request"), headers=headers)
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            responses = [future.result() for future in (pool.submit(start), pool.submit(start))]
+        assert [response.status_code for response in responses] == [200, 200]
+        assert len({response.json()["run_id"] for response in responses}) == 1
+        assert len(client.get("/api/threads/t1/runs").json()) == 1
+    finally:
+        gate.set()
+
+
 def test_stream_endpoint_sends_sse_with_content_location(make_client):
     client = make_client()
     with client.stream("POST", "/api/threads/t1/runs/stream", json=body(stream_mode=["messages"])) as response:
@@ -215,6 +271,41 @@ def test_second_run_on_a_busy_thread_gets_409(make_client):
         gate.set()
     assert wait_for_status(client, "t1", first["run_id"])["status"] == "success"
     assert client.post("/api/threads/t1/runs/wait", json=body()).status_code in (200,)  # free again (model wraps around)
+
+
+def test_rollback_cancels_the_active_run_and_restores_its_pre_run_state(make_client):
+    gate = threading.Event()
+    model = SelectiveGatedModel(
+        responses=[
+            AIMessage(content="baseline answer"),
+            AIMessage(content="discard this answer"),
+            AIMessage(content="replacement answer"),
+        ],
+        gate=gate,
+    )
+    client = make_client(model=model)
+    client.post("/api/threads/t1/runs/wait", json=body("baseline"))
+    interrupted = client.post("/api/threads/t1/runs", json=body("temporary")).json()
+
+    threading.Timer(0.1, gate.set).start()
+    replacement = client.post(
+        "/api/threads/t1/runs",
+        json=body("replacement", multitask_strategy="rollback"),
+    )
+
+    assert replacement.status_code == 200
+    replacement_run = replacement.json()
+    wait_for_status(client, "t1", replacement_run["run_id"])
+    old_run = client.get(f"/api/threads/t1/runs/{interrupted['run_id']}").json()
+    messages = client.get("/api/threads/t1/messages").json()
+    assert old_run["status"] == "interrupted"
+    assert replacement_run["multitask_strategy"] == "rollback"
+    assert [(message["type"], message["content"]) for message in messages] == [
+        ("human", "baseline"),
+        ("ai", "baseline answer"),
+        ("human", "replacement"),
+        ("ai", "replacement answer"),
+    ]
 
 
 def test_cancel_stops_the_run_and_frees_the_thread(make_client):

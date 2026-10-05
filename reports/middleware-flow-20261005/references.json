@@ -1,0 +1,564 @@
+{
+  "verified_at": "2026-10-05",
+  "guide_path": "/Users/johnathanjohnathan/Documents/dearflow/reports/middleware-guide-20261005/dearflow-middleware-guide.pdf",
+  "guide_page_count": 62,
+  "page_numbering": "Printed page numbers match one-based PDF page indices. HTML/PDF #page=N references target these numbers.",
+  "scope": "Simplified DearFlow lead agent with all 14 middleware enabled; source and installed LangChain were read without edits or network calls.",
+  "registration_order": [
+    "ToolReceiptMiddleware",
+    "InputSanitizationMiddleware",
+    "DanglingToolCallMiddleware",
+    "ToolErrorHandlingMiddleware",
+    "DynamicContextMiddleware",
+    "MemoryMiddleware",
+    "RedactingSummarizationMiddleware",
+    "TitleMiddleware",
+    "SubagentLimitMiddleware",
+    "TokenBudgetMiddleware",
+    "LoopDetectionMiddleware",
+    "TodoMiddleware",
+    "PiiRedactionMiddleware",
+    "ClarificationMiddleware"
+  ],
+  "stages": [
+    {
+      "id": "before_agent",
+      "title": "Before the agent starts",
+      "frequency": "Normally once when this graph invocation begins, not again after every tool call.",
+      "order": [
+        "DynamicContextMiddleware",
+        "MemoryMiddleware"
+      ],
+      "explanation": "Prepare the shared conversation state: add a current-date reminder and saved user facts when needed.",
+      "before": "The user message and any existing conversation state.",
+      "after": "A state patch adds hidden date and memory messages; the next stage sees the updated state.",
+      "guide_pages": [
+        6,
+        16,
+        17,
+        18
+      ],
+      "screenshot_pages": [
+        43,
+        44
+      ],
+      "compare": "Input.before.value → Output.state_update.value, then inspect the next hook input for the merged state."
+    },
+    {
+      "id": "before_model",
+      "title": "Before each model attempt",
+      "frequency": "Each ordinary model-loop iteration, including after ordinary tool results and Todo reroutes.",
+      "order": [
+        "RedactingSummarizationMiddleware",
+        "TodoMiddleware"
+      ],
+      "explanation": "Update the shared state before constructing the model request. Shorten older conversation if the threshold is crossed; restore a saved todo reminder if its original context disappeared.",
+      "before": "Current state, including previous tool results and saved todos.",
+      "after": "A state patch may replace old history with a summary or append a hidden todo reminder; null means no patch.",
+      "guide_pages": [
+        6,
+        18,
+        19,
+        23,
+        24
+      ],
+      "screenshot_pages": [
+        48,
+        52
+      ],
+      "compare": "Input.before.value → Output.state_update.value. The patch is not the full model request."
+    },
+    {
+      "id": "wrap_model_call",
+      "title": "Around the model request and reply",
+      "frequency": "Each main-model call. Wrappers nest; entering and returning are two sides of the same operation.",
+      "order": [
+        "ToolReceiptMiddleware",
+        "InputSanitizationMiddleware",
+        "DanglingToolCallMiddleware",
+        "TokenBudgetMiddleware",
+        "LoopDetectionMiddleware",
+        "TodoMiddleware",
+        "PiiRedactionMiddleware"
+      ],
+      "return_order": [
+        "PiiRedactionMiddleware",
+        "TodoMiddleware",
+        "LoopDetectionMiddleware",
+        "TokenBudgetMiddleware",
+        "DanglingToolCallMiddleware",
+        "InputSanitizationMiddleware",
+        "ToolReceiptMiddleware"
+      ],
+      "explanation": "On entry, layers prepare a temporary request copy: receipts, user boundaries, repaired tool history, budget warning, loop warning, todo system instructions, then personal-data masking. On return, the same layers unwind in reverse; ToolReceipt stamps the ledger on the returned AI message.",
+      "before": "A request containing the current messages, system instructions, available tools and settings.",
+      "after": "The innermost model gets the final prepared request. The outer layers receive the returned AI message; most do not rewrite the reply.",
+      "guide_pages": [
+        6,
+        13,
+        14,
+        15,
+        21,
+        22,
+        23,
+        24,
+        25,
+        35,
+        36
+      ],
+      "screenshot_pages": [
+        42,
+        45,
+        47,
+        55,
+        56
+      ],
+      "compare": "Entry: Input.before.value → Output.calls[0].request.value. Return: Output.calls[0].response.value → Output.result.value. Later inner wrappers may further change the request."
+    },
+    {
+      "id": "model",
+      "title": "The model generates one reply",
+      "frequency": "One actual LLM invocation; a user turn can contain many.",
+      "order": [
+        "Configured chat model: openai:ilmu-mini-v3.3 (ChatOpenAI)"
+      ],
+      "explanation": "The provider receives the fully assembled request and generates text, tool requests, and token usage. A generated tool request describes a proposed action; it has not executed yet.",
+      "before": "Final system instructions, eligible messages and provider tool definitions.",
+      "after": "AI text and/or tool_calls, with usage_metadata.",
+      "guide_pages": [
+        3,
+        4,
+        6,
+        31,
+        36,
+        39,
+        41
+      ],
+      "screenshot_pages": [],
+      "compare": "Select the innermost ChatOpenAI LLM span and compare Input with Output. Count actual LLM spans, not surrounding middleware spans."
+    },
+    {
+      "id": "after_model",
+      "title": "Inspect the generated reply",
+      "frequency": "After a model reply, until any explicit routing jump changes the path.",
+      "order": [
+        "ClarificationMiddleware",
+        "TodoMiddleware",
+        "LoopDetectionMiddleware",
+        "TokenBudgetMiddleware",
+        "SubagentLimitMiddleware"
+      ],
+      "explanation": "Reverse registration order. Clarification removes sibling actions when asking the user; Todo can ask the model to continue; loop and budget guards can remove tool requests; the delegation guard trims excess task calls.",
+      "before": "State with the newly generated AI message.",
+      "after": "A patch may replace that AI message, add a reminder, or set jump_to. Requested tools only execute after the guards permit them.",
+      "guide_pages": [
+        6,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        35,
+        36
+      ],
+      "screenshot_pages": [
+        49,
+        50,
+        51,
+        52,
+        53
+      ],
+      "compare": "Input.before.value → Output.state_update.value. Same message id means replacement, not an additional answer.",
+      "routing_note": "The displayed order is the normal sequence. Todo jump_to=model resolves to the loop entry (before_model), so it can skip later after_model hooks in that iteration."
+    },
+    {
+      "id": "wrap_tool_call",
+      "title": "Around each permitted tool call",
+      "frequency": "Once per tool execution/interception; a model reply can request multiple tools.",
+      "order": [
+        "ToolReceiptMiddleware",
+        "ToolErrorHandlingMiddleware",
+        "PiiRedactionMiddleware",
+        "ClarificationMiddleware"
+      ],
+      "return_order": [
+        "ClarificationMiddleware",
+        "PiiRedactionMiddleware",
+        "ToolErrorHandlingMiddleware",
+        "ToolReceiptMiddleware"
+      ],
+      "explanation": "Clarification can supply a question without invoking the underlying tool. For an ordinary tool, the inner handler runs it; selected external outputs are masked; ordinary failures become error results; the outer receipt layer stamps the final result.",
+      "before": "One permitted tool call, including its name, arguments and call id.",
+      "after": "A ToolMessage, or a Command carrying a result and routing/state update. Ordinary results return to before_model; return_direct clarification proceeds to after_agent.",
+      "guide_pages": [
+        6,
+        13,
+        14,
+        16,
+        24,
+        25,
+        26,
+        35,
+        36,
+        38
+      ],
+      "screenshot_pages": [
+        45,
+        46,
+        53
+      ],
+      "compare": "Input.before.value and Output.calls/result. handler_calls=0 is expected for intercepted ask_clarification.",
+      "exception_note": "When an inner handler raises, PII does not receive a normal result on that path. ToolErrorHandling catches the exception outside it and creates an error ToolMessage; ToolReceipt then stamps that result."
+    },
+    {
+      "id": "after_agent",
+      "title": "After the agent finishes this invocation",
+      "frequency": "Normally once on the graph completion path, after the model/tool loop ends; ordinary unhandled errors can prevent normal completion.",
+      "order": [
+        "TitleMiddleware",
+        "MemoryMiddleware"
+      ],
+      "explanation": "Title writes a short conversation label. Memory queues the latest real user/assistant exchange for later fact extraction. They are completion work, not another pass over every model reply.",
+      "before": "Completed turn state and the final exchange.",
+      "after": "A title state patch may appear; memory normally returns null while queuing a side effect. Later background extraction and disk persistence require separate verification.",
+      "guide_pages": [
+        6,
+        17,
+        18,
+        19,
+        20,
+        40,
+        59,
+        60,
+        61
+      ],
+      "screenshot_pages": [
+        44,
+        54,
+        59
+      ],
+      "compare": "For Title compare Input.before.value → Output.state_update.value. For Memory, null is expected; verify accepted saved facts and recall in a later fresh thread."
+    }
+  ],
+  "middleware": [
+    {
+      "name": "ToolReceiptMiddleware",
+      "guide_pages": [
+        13,
+        14
+      ],
+      "screenshot_pages": [
+        45
+      ],
+      "figures": [
+        4
+      ],
+      "hooks": [
+        "wrap_model_call",
+        "wrap_tool_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/tool_receipt.py"
+    },
+    {
+      "name": "InputSanitizationMiddleware",
+      "guide_pages": [
+        14
+      ],
+      "screenshot_pages": [
+        42,
+        57,
+        58
+      ],
+      "figures": [
+        1,
+        16,
+        17
+      ],
+      "hooks": [
+        "wrap_model_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/input_sanitization.py"
+    },
+    {
+      "name": "DanglingToolCallMiddleware",
+      "guide_pages": [
+        15
+      ],
+      "screenshot_pages": [
+        47
+      ],
+      "figures": [
+        6
+      ],
+      "hooks": [
+        "wrap_model_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/dangling_tool_call.py"
+    },
+    {
+      "name": "ToolErrorHandlingMiddleware",
+      "guide_pages": [
+        16
+      ],
+      "screenshot_pages": [
+        46
+      ],
+      "figures": [
+        5
+      ],
+      "hooks": [
+        "wrap_tool_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/tool_error_handling.py"
+    },
+    {
+      "name": "DynamicContextMiddleware",
+      "guide_pages": [
+        16,
+        17
+      ],
+      "screenshot_pages": [
+        43
+      ],
+      "figures": [
+        2
+      ],
+      "hooks": [
+        "before_agent"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/dynamic_context.py"
+    },
+    {
+      "name": "MemoryMiddleware",
+      "guide_pages": [
+        17,
+        18
+      ],
+      "screenshot_pages": [
+        44,
+        59
+      ],
+      "figures": [
+        3,
+        18
+      ],
+      "hooks": [
+        "before_agent",
+        "after_agent"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/memory.py"
+    },
+    {
+      "name": "RedactingSummarizationMiddleware",
+      "guide_pages": [
+        18,
+        19
+      ],
+      "screenshot_pages": [
+        48
+      ],
+      "figures": [
+        7
+      ],
+      "hooks": [
+        "before_model"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/redacting_summarization.py"
+    },
+    {
+      "name": "TitleMiddleware",
+      "guide_pages": [
+        19,
+        20
+      ],
+      "screenshot_pages": [
+        54
+      ],
+      "figures": [
+        13
+      ],
+      "hooks": [
+        "after_agent"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/title.py"
+    },
+    {
+      "name": "SubagentLimitMiddleware",
+      "guide_pages": [
+        20
+      ],
+      "screenshot_pages": [
+        49
+      ],
+      "figures": [
+        8
+      ],
+      "hooks": [
+        "after_model"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/subagent_limit.py"
+    },
+    {
+      "name": "TokenBudgetMiddleware",
+      "guide_pages": [
+        21
+      ],
+      "screenshot_pages": [
+        51
+      ],
+      "figures": [
+        10
+      ],
+      "hooks": [
+        "wrap_model_call",
+        "after_model"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/token_budget.py"
+    },
+    {
+      "name": "LoopDetectionMiddleware",
+      "guide_pages": [
+        22
+      ],
+      "screenshot_pages": [
+        50
+      ],
+      "figures": [
+        9
+      ],
+      "hooks": [
+        "wrap_model_call",
+        "after_model"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/loop_detection.py"
+    },
+    {
+      "name": "TodoMiddleware",
+      "guide_pages": [
+        23,
+        24
+      ],
+      "screenshot_pages": [
+        52
+      ],
+      "figures": [
+        11
+      ],
+      "hooks": [
+        "before_model",
+        "wrap_model_call",
+        "after_model"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/todo.py"
+    },
+    {
+      "name": "PiiRedactionMiddleware",
+      "guide_pages": [
+        24,
+        25
+      ],
+      "screenshot_pages": [
+        55,
+        56
+      ],
+      "figures": [
+        14,
+        15
+      ],
+      "hooks": [
+        "wrap_model_call",
+        "wrap_tool_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/pii_redaction.py"
+    },
+    {
+      "name": "ClarificationMiddleware",
+      "guide_pages": [
+        25,
+        26
+      ],
+      "screenshot_pages": [
+        53
+      ],
+      "figures": [
+        12
+      ],
+      "hooks": [
+        "after_model",
+        "wrap_tool_call"
+      ],
+      "source": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/clarification.py"
+    }
+  ],
+  "pitfalls": [
+    "A user turn is one RunService/user request; agent means the compiled loop handling it. Model means one provider call inside that loop. Tool calls are proposed by the model and executed later.",
+    "Before/after agent delimit normal graph execution. Before/after model repeat around model attempts. They are not four middleware functions that every component must implement.",
+    "Middleware registration order is not one flat list executed uniformly. Each hook selects only components that implement it. before hooks run forward; after hooks run backward; wrappers enter forward and return backward.",
+    "Todo inherits wrap_model_call from LangChain TodoListMiddleware, and RedactingSummarization inherits before_model from SummarizationMiddleware. Searching only local def lines would miss these hooks.",
+    "A wrapper return transformation happens before the graph after_model hooks. ToolReceipt stamping on the returning AI message is therefore not itself an after_model hook.",
+    "State patches and request overrides differ: date, memory, summary and todo reminders change graph state; sanitation, repaired history, receipt ledger, warning messages and user-text PII masking usually alter a request copy. The original stored user text is not necessarily rewritten.",
+    "The reply’s tool_calls are requests, not receipts. Guards can remove them. Actual completed ToolMessages and stamped receipts show what executed.",
+    "The ordinary tool-return path loops to before_model, not before_agent. ask_clarification is return_direct and completes through after_agent, and the next user reply creates a new run on the same thread.",
+    "Todo jump_to=model maps to the loop entry (before_model) in installed LangChain and may bypass later after_model hooks that iteration. Clarification disabled uses a Command(goto=\"model\"), a direct graph-node jump; distinguish it from middleware jump_to.",
+    "After_agent Memory queues background work. A successful span or null state_update does not mean facts are saved. Acknowledgment text is not memory proof; accepted saved facts and a later answer without supplied facts are stronger evidence.",
+    "Not every enabled hook changes data. A no-op can be correct when no threshold, sensitive text, broken history or pending work needs handling.",
+    "Metadata labels such as dearflow_hook, langgraph_step and ls_run_depth describe tracing. They do not automatically enter the model prompt.",
+    "Never sum parent wrapper token totals with child LLM totals. Count each real LLM call once; background memory extraction can be outside the user-turn trace.",
+    "PII export redaction_applied is a snapshot-export flag. It is not the runtime PiiRedactionMiddleware verdict. The full guide documents the paired evidence and limitations.",
+    "The exact normal lead chain has 14 components, but subagents use a smaller chain. The companion must not imply each subagent repeats all lead hooks."
+  ],
+  "source_references": [
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/chain.py",
+      "line": 34,
+      "description": "First registered component is the outermost wrapper."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/chain.py",
+      "line": 75,
+      "description": "Actual conditionally enabled registration sequence."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/agents/lead_agent.py",
+      "line": 117,
+      "description": "create_agent receives the instrumented middleware chain."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/.venv/lib/python3.12/site-packages/langchain/agents/factory.py",
+      "line": 1715,
+      "description": "Graph entry, loop-entry, loop-exit and completion nodes."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/.venv/lib/python3.12/site-packages/langchain/agents/factory.py",
+      "line": 1744,
+      "description": "Tools loop to before_model, except return_direct and structured output completion."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/.venv/lib/python3.12/site-packages/langchain/agents/factory.py",
+      "line": 1855,
+      "description": "after_model and after_agent hooks run in reverse registration order."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/.venv/lib/python3.12/site-packages/langchain/agents/factory.py",
+      "line": 1953,
+      "description": "jump_to=model resolves to supplied loop-entry destination."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/todo.py",
+      "line": 51,
+      "description": "Todo completion reminder and jump_to=model; inherited wrapper adds instructions."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/clarification.py",
+      "line": 129,
+      "description": "Disabled clarification uses Command goto=model; enabled clarification is intercepted."
+    },
+    {
+      "path": "/Users/johnathanjohnathan/Documents/dearflow/src/dearflow/middlewares/memory.py",
+      "line": 74,
+      "description": "after_agent enqueues extraction and returns None."
+    }
+  ]
+}

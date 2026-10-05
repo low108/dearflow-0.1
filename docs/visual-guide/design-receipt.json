@@ -1,0 +1,93 @@
+{
+  "style_choice": "DearFlow navy and teal, explicitly selected by user",
+  "sampled_source": "reports/middleware-flow-20261005/index.html",
+  "tokens": {
+    "paper": "#F4F6F5",
+    "ink": "#12283B",
+    "muted": "#536675",
+    "accent": "#087E83",
+    "rule": "#C4D3D8",
+    "accent_tint": "#E6F2F1"
+  },
+  "fonts": {
+    "body": {
+      "family": "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+      "status": "exact intentional system stack from DearFlow guide"
+    },
+    "technical": {
+      "family": "SFMono-Regular, Consolas, Liberation Mono, monospace",
+      "status": "intentional system monospace stack; no remote asset"
+    },
+    "title": {
+      "family": "Instrument Serif, Georgia, serif",
+      "source": "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap",
+      "status": "editorial addition from diagram-design; Georgia fallback disclosed"
+    }
+  },
+  "format": "self-contained HTML with inline SVG",
+  "preset": "slide-16x9, 1280x720, presentation type scale, embedded in docs",
+  "animation": "none",
+  "references": [
+    "https://github.com/low108/Sampan/tree/main/docs",
+    "https://github.com/cathrynlavery/diagram-design"
+  ],
+  "diagrams": [
+    {
+      "id": "architecture",
+      "type": "Architecture",
+      "nodes": 7,
+      "connectors": 9,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "round-trip",
+      "type": "Sequence",
+      "nodes": 4,
+      "connectors": 8,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "middleware",
+      "type": "Flowchart",
+      "nodes": 6,
+      "connectors": 8,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "delegation",
+      "type": "Architecture",
+      "nodes": 4,
+      "connectors": 6,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "memory",
+      "type": "Sequence",
+      "nodes": 4,
+      "connectors": 8,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "message-views",
+      "type": "Architecture",
+      "nodes": 6,
+      "connectors": 6,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    },
+    {
+      "id": "tracing",
+      "type": "Tree",
+      "nodes": 7,
+      "connectors": 8,
+      "semantic_pattern": "none: component relationships, concrete message sequence, ordinary branching or containment tree; no policy/trust/lifecycle phase-map claim"
+    }
+  ],
+  "verification": {
+    "source_review": "Reviewed against the simplified DearFlow source; examples explicitly illustrative.",
+    "visual_review": "All seven diagrams inspected in Chrome; no node text overflow.",
+    "responsive_review": "1470px desktop and 390px mobile: page fits viewport; diagrams retain local horizontal scrolling.",
+    "geometry_checker": "8 HTML files checked; 0 findings.",
+    "skill_self_check": "All 7 individual diagram pages pass. The index flags only its two requested GitHub citation hyperlinks; these are ordinary navigation, not loaded assets. Manually reviewed and retained.",
+    "scope": "Documentation only; no new live model or LangSmith test was run."
+  }
+}

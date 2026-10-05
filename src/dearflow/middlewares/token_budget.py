@@ -58,8 +58,6 @@ class TokenBudgetMiddleware(AgentMiddleware):
 
         reason, used, limit, fraction = self._highest_fraction(usage)
         if fraction >= self._config.hard_stop_threshold:
-            if not last.tool_calls:
-                return None  # already a final answer: leave it clean
             usage.stop_reason = TOKEN_CAPPED
             logger.warning("Token budget hard stop for run %s: %s limit reached", usage.run_id, reason)
             note = _EXCEEDED.format(reason=reason, used=used, budget=limit)

@@ -9,16 +9,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncIterator, Iterable
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from dearflow.gateway.deps import Gateway, current_user, get_gateway, owned_thread
 from dearflow.gateway.models import RunCreateRequest, RunResponse, ThreadId
-from dearflow.gateway.run_manager import ActiveRun
+from dearflow.gateway.run_manager import ActiveRun, IdempotencyConflictError
 from dearflow.persistence.runs import RUNNING
 from dearflow.service import ThreadBusyError
 from dearflow.streaming import StreamEvent, to_jsonable
@@ -32,17 +33,63 @@ _SSE_HEADERS = {"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Acce
 # --- starting runs ----------------------------------------------------------
 
 
-async def _start(gw: Gateway, body: RunCreateRequest, thread_id: str, user: str) -> ActiveRun:
+def _idempotency_scope(user: str, thread_id: str, key: str) -> str:
+    return "http-run:" + hashlib.sha256(f"{user}\0{thread_id}\0{key}".encode()).hexdigest()
+
+
+def _request_hash(body: RunCreateRequest) -> str:
+    logical_request = {
+        "assistant_id": body.assistant_id,
+        "input": body.input,
+        "metadata": body.metadata or {},
+        "context": body.overrides,
+    }
+    encoded = json.dumps(logical_request, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+async def _start(
+    gw: Gateway,
+    body: RunCreateRequest,
+    thread_id: str,
+    user: str,
+    idempotency_key: str | None,
+) -> ActiveRun:
     owned_thread(gw, thread_id, user)  # 404 for someone else's thread; a new thread is created by the run
+    scoped_key: str | None = None
+    fingerprint: str | None = None
+    if idempotency_key is not None:
+        idempotency_key = idempotency_key.strip()
+        if not idempotency_key:
+            raise HTTPException(status_code=422, detail="Idempotency-Key must not be blank")
+        scoped_key = _idempotency_scope(user, thread_id, idempotency_key)
+        fingerprint = _request_hash(body)
+        existing = gw.persistence.runs.get_by_idempotency_key(scoped_key)
+        if existing is not None:
+            if existing.request_hash != fingerprint:
+                raise HTTPException(status_code=409, detail="Idempotency-Key already used with a different request")
+            active = gw.runs.get(existing.run_id)
+            if active is not None:
+                return active
     try:
         service = await asyncio.to_thread(gw.service, body.overrides)
     except Exception as exc:  # unknown model name, missing API key...
         raise HTTPException(status_code=422, detail=f"Could not build the agent: {exc}") from exc
     try:
         return await asyncio.to_thread(
-            gw.runs.start, service, body.message, thread_id=thread_id, user_id=user, modes=body.stream_mode
+            gw.runs.start,
+            service,
+            body.message,
+            thread_id=thread_id,
+            user_id=user,
+            modes=body.stream_mode,
+            idempotency_key=scoped_key,
+            request_hash=fingerprint,
+            multitask_strategy=body.multitask_strategy,
         )
     except ThreadBusyError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IdempotencyConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -52,15 +99,27 @@ def _response(gw: Gateway, run: ActiveRun) -> RunResponse:
 
 
 @router.post("", response_model=RunResponse)
-async def create_run(thread_id: ThreadId, body: RunCreateRequest, gw: Gateway = Depends(get_gateway), user: str = Depends(current_user)):
+async def create_run(
+    thread_id: ThreadId,
+    body: RunCreateRequest,
+    gw: Gateway = Depends(get_gateway),
+    user: str = Depends(current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=255),
+):
     """Start a run in the background (returns immediately)."""
-    return _response(gw, await _start(gw, body, thread_id, user))
+    return _response(gw, await _start(gw, body, thread_id, user, idempotency_key))
 
 
 @router.post("/stream")
-async def stream_run(thread_id: ThreadId, body: RunCreateRequest, gw: Gateway = Depends(get_gateway), user: str = Depends(current_user)):
+async def stream_run(
+    thread_id: ThreadId,
+    body: RunCreateRequest,
+    gw: Gateway = Depends(get_gateway),
+    user: str = Depends(current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=255),
+):
     """Start a run and stream its events as Server-Sent Events."""
-    run = await _start(gw, body, thread_id, user)
+    run = await _start(gw, body, thread_id, user, idempotency_key)
     return StreamingResponse(
         _sse(gw, run.subscribe(gw.config.gateway.heartbeat_seconds), on_close=_cancel_if(gw, run, body.on_disconnect)),
         media_type="text/event-stream",
@@ -69,9 +128,15 @@ async def stream_run(thread_id: ThreadId, body: RunCreateRequest, gw: Gateway = 
 
 
 @router.post("/wait")
-async def wait_run(thread_id: ThreadId, body: RunCreateRequest, gw: Gateway = Depends(get_gateway), user: str = Depends(current_user)):
+async def wait_run(
+    thread_id: ThreadId,
+    body: RunCreateRequest,
+    gw: Gateway = Depends(get_gateway),
+    user: str = Depends(current_user),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=255),
+):
     """Start a run, wait for it, return the final thread state (or the run's status if it failed)."""
-    run = await _start(gw, body, thread_id, user)
+    run = await _start(gw, body, thread_id, user, idempotency_key)
     await asyncio.to_thread(run.wait)
     record = gw.persistence.runs.get(run.run_id)
     if record.status != "success":

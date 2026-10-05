@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, BaseMessageChunk, message_chunk_to_message
 
 from dearflow.receipts import RECEIPT_KEY
 
@@ -23,11 +23,17 @@ def to_jsonable(value: Any) -> Any:
     becomes a string rather than failing the stream.
     """
     if isinstance(value, BaseMessage):
+        # Provider streams use AIMessageChunk/ToolMessageChunk, while our wire
+        # format and CLI use semantic message types (ai/tool). Keep argument
+        # deltas separately: conversion to a complete message drops them.
+        tool_call_chunks = getattr(value, "tool_call_chunks", None)
+        if isinstance(value, BaseMessageChunk):
+            value = message_chunk_to_message(value)
         data = {"type": value.type, "id": value.id, "content": value.content}
         if getattr(value, "tool_calls", None):
             data["tool_calls"] = to_jsonable(value.tool_calls)
-        if getattr(value, "tool_call_chunks", None):
-            data["tool_call_chunks"] = to_jsonable(value.tool_call_chunks)
+        if tool_call_chunks:
+            data["tool_call_chunks"] = to_jsonable(tool_call_chunks)
         if value.type == "tool":
             data["tool_call_id"] = value.tool_call_id
             data["name"] = value.name

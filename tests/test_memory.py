@@ -1,4 +1,5 @@
 import json
+from dataclasses import is_dataclass
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
@@ -77,6 +78,16 @@ def test_parse_facts_survives_garbage():
 
 
 # --- manager ------------------------------------------------------------------
+
+
+def test_exchange_is_a_plain_value_class_in_its_own_module():
+    first = Exchange("hello", "hi")
+
+    assert not is_dataclass(first)
+    assert type(first).__module__ == "dearflow.memory.exchange"
+    assert first.user == "hello" and first.assistant == "hi"
+    assert first == Exchange(user="hello", assistant="hi")
+    assert first != Exchange("different", "hi")
 
 
 def manager_for(tmp_path, responses, **kw):

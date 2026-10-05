@@ -1,7 +1,9 @@
 import json
+from contextlib import closing
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessageChunk
+from langchain_core.outputs import ChatGenerationChunk
 
 from conftest import FakeModelFactory, ToolCapableFakeModel
 from dearflow.agents import LeadAgentFactory
@@ -25,7 +27,12 @@ def names(events):
 
 
 def task_call(id="t1"):
-    return {"name": "task", "args": {"prompt": "x", "subagent_type": "general-purpose", "description": "look up"}, "id": id, "type": "tool_call"}
+    return {
+        "name": "task",
+        "args": {"prompt": "x", "subagent_type": "general-purpose", "description": "look up"},
+        "id": id,
+        "type": "tool_call",
+    }
 
 
 # --- modes & format -----------------------------------------------------------
@@ -53,6 +60,23 @@ def test_to_jsonable_reduces_messages_and_survives_odd_values():
     assert data["m"][0] == {"type": "human", "id": None, "content": "<memory>", "hidden": True}
     assert isinstance(data["obj"], str) and data["t"] == [1, 2]
     json.dumps(data)  # really serializable
+
+
+def test_chunk_serialization_uses_message_roles_and_retains_tool_deltas():
+    chunk = AIMessageChunk(
+        content="",
+        tool_call_chunks=[{"name": "lookup", "args": '{"query":', "id": "call-1", "index": 0}],
+    )
+    data = to_jsonable(chunk)
+    assert data["type"] == "ai"
+    assert data["tool_call_chunks"][0]["args"] == '{"query":'
+    assert chunk.type == "AIMessageChunk"  # wire normalization must not mutate provider chunks
+
+    result = to_jsonable(ToolMessageChunk(content="Which city?", tool_call_id="call-2", name="ask_clarification"))
+    assert result["type"] == "tool"
+    assert result["name"] == "ask_clarification"
+    assert result["tool_call_id"] == "call-2"
+    assert result["content"] == "Which city?"
 
 
 # --- the stream ---------------------------------------------------------------
@@ -204,6 +228,54 @@ def test_cli_prints_the_answer_live():
     assert lines[0].startswith("DearFlow CLI")
 
 
+class StreamingModel(ToolCapableFakeModel):
+    """A provider-style stream: text deltas followed by a usage-only chunk."""
+
+    def _stream(self, messages, stop=None, run_manager=None, **kwargs):
+        yield ChatGenerationChunk(message=AIMessageChunk(content="Hello "))
+        yield ChatGenerationChunk(message=AIMessageChunk(content="there!"))
+        yield ChatGenerationChunk(
+            message=AIMessageChunk(
+                content="",
+                usage_metadata={"input_tokens": 1054, "output_tokens": 124, "total_tokens": 1178},
+            )
+        )
+
+
+def test_streaming_sse_uses_assistant_roles_and_keeps_each_text_delta():
+    with closing(Persistence.in_memory()) as persistence:
+        agent = LeadAgentFactory(
+            AppConfig(default_model="fake"),
+            model_factory=FakeModelFactory(StreamingModel(responses=[])),
+            checkpointer=persistence.checkpointer,
+        ).build()
+        events = list(RunService(agent, persistence).stream("hi", thread_id="t1", modes=["messages"]))
+    payloads = [
+        json.loads(next(line.removeprefix("data: ") for line in event.sse().splitlines() if line.startswith("data: ")))
+        for event in events
+        if event.event == "messages" and event.data["node"] == "model"
+    ]
+    assert {payload["message"]["type"] for payload in payloads} == {"ai"}
+    assert [payload["message"]["content"] for payload in payloads if payload["message"]["content"]] == ["Hello ", "there!"]
+
+
+@pytest.mark.parametrize("snapshots", [False, True])
+def test_cli_prints_provider_stream_chunks_and_token_usage(snapshots):
+    lines, chunks = [], []
+    feed = iter(["hi there", "hello", "quit"])
+    run_chat(
+        app_config=AppConfig(default_model="fake", observability={"middleware_snapshots": snapshots}),
+        thread_id="t1",
+        model_factory=FakeModelFactory(StreamingModel(responses=[])),
+        stream=True,
+        read=lambda _p: next(feed),
+        write=lines.append,
+        emit=chunks.append,
+    )
+    assert lines.count("  tokens: 1,054 in / 124 out") == 2
+    assert "".join(chunks) == "DearFlow: Hello there!\nDearFlow: Hello there!\n"
+
+
 def test_cli_shows_tool_and_subagent_activity():
     responses = [AIMessage(content="", tool_calls=[task_call()]), AIMessage(content="report"), AIMessage(content="All done")]
     lines, text = chat_stream(responses, ["go", "quit"], subagents={"enabled": True})
@@ -214,7 +286,12 @@ def test_cli_shows_tool_and_subagent_activity():
 
 
 def test_cli_prints_a_clarification_question():
-    ask = {"name": "ask_clarification", "args": {"question": "Which city?", "clarification_type": "missing_info"}, "id": "c1", "type": "tool_call"}
+    ask = {
+        "name": "ask_clarification",
+        "args": {"question": "Which city?", "clarification_type": "missing_info"},
+        "id": "c1",
+        "type": "tool_call",
+    }
     _, text = chat_stream([AIMessage(content="", tool_calls=[ask])], ["plan a trip", "quit"])
 
     assert "Which city?" in text

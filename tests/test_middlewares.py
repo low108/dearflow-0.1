@@ -4,14 +4,16 @@ from langchain_core.tools import tool
 from conftest import FakeModelFactory, ToolCapableFakeModel
 from dearflow.agents import LeadAgentFactory
 from dearflow.config import AppConfig
-from dearflow.middlewares import MiddlewareChain, ToolErrorHandlingMiddleware
+from dearflow.middlewares import InputSanitizationMiddleware, MiddlewareChain, ToolErrorHandlingMiddleware
 from dearflow.tools import ToolRegistry
 
 
-def test_chain_preserves_order_and_default_has_error_handling():
+def test_chain_preserves_order_and_default_starts_at_the_input_boundary():
     first, second = ToolErrorHandlingMiddleware(), ToolErrorHandlingMiddleware()
     assert MiddlewareChain().add(first).add(second).build() == [first, second]
-    assert isinstance(MiddlewareChain.default().build()[0], ToolErrorHandlingMiddleware)
+    default = MiddlewareChain.default().build()
+    assert isinstance(default[0], InputSanitizationMiddleware)
+    assert any(isinstance(item, ToolErrorHandlingMiddleware) for item in default)
 
 
 def test_tool_errors_are_returned_to_the_model():

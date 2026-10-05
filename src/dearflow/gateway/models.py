@@ -38,8 +38,11 @@ class RunCreateRequest(BaseModel):
     @field_validator("multitask_strategy")
     @classmethod
     def _only_reject(cls, value: str) -> str:
-        if value != "reject":
-            raise PydanticCustomError("unsupported_run_option", "Run option 'multitask_strategy' only supports 'reject'")
+        if value not in ("reject", "rollback"):
+            raise PydanticCustomError(
+                "unsupported_run_option",
+                "Run option 'multitask_strategy' only supports 'reject' or 'rollback'",
+            )
         return value
 
     @field_validator("stream_mode")
@@ -110,6 +113,7 @@ class RunResponse(BaseModel):
             run_id=record.run_id,
             thread_id=record.thread_id,
             status=record.status,
+            multitask_strategy=record.multitask_strategy,
             created_at=record.created_at,
             updated_at=record.updated_at,
             message_count=record.message_count,

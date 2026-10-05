@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
+from uuid import UUID
 
 from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.types import Overwrite
 
 from dearflow.agents import LeadAgent
 from dearflow.persistence import Persistence
@@ -71,9 +74,20 @@ class RunService:
 
     # --- public API ------------------------------------------------------------
 
-    def invoke(self, message: str, *, thread_id: str, user_id: str = "default") -> RunResult:
+    def invoke(
+        self,
+        message: str,
+        *,
+        thread_id: str,
+        user_id: str = "default",
+        non_interactive: bool = False,
+    ) -> RunResult:
         with self._tracked(message, thread_id, user_id) as run:
-            run.state = self._agent.graph.invoke(self._input(message), run.config)
+            run.state = self._agent.graph.invoke(
+                self._input(message),
+                run.config,
+                context={"non_interactive": True} if non_interactive else None,
+            )
         return RunResult(run.run_id, thread_id, run.state, run.usage)
 
     def stream(
@@ -83,6 +97,10 @@ class RunService:
         thread_id: str,
         user_id: str = "default",
         modes: list[str] | str | None = None,
+        non_interactive: bool = False,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
+        multitask_strategy: str = "reject",
     ) -> Iterator[StreamEvent]:
         """Run the agent and yield events as they happen.
 
@@ -107,11 +125,23 @@ class RunService:
         failure: str | None = None
         handle: _Run | None = None
         try:
-            with self._tracked(message, thread_id, user_id) as run:
+            with self._tracked(
+                message,
+                thread_id,
+                user_id,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                multitask_strategy=multitask_strategy,
+            ) as run:
                 handle = run
                 run_id = run.run_id
                 yield make(METADATA, {"run_id": run_id, "thread_id": thread_id})
-                for mode, chunk in self._agent.graph.stream(self._input(message), run.config, stream_mode=graph_modes):
+                for mode, chunk in self._agent.graph.stream(
+                    self._input(message),
+                    run.config,
+                    context={"non_interactive": True} if non_interactive else None,
+                    stream_mode=graph_modes,
+                ):
                     data = self._shape(mode, chunk)
                     if data is None:
                         continue
@@ -135,9 +165,44 @@ class RunService:
         """Replay a finished (or running) run's log."""
         return [StreamEvent(seq, name, data) for seq, name, data in self._db.events.list(run_id, after_seq)]
 
+    def run_by_idempotency_key(self, idempotency_key: str):
+        """Return the durable run claimed by a scoped HTTP idempotency key."""
+        return self._db.runs.get_by_idempotency_key(idempotency_key)
+
     def state(self, thread_id: str) -> dict[str, Any]:
         """The thread's current state values (empty dict for a thread with no checkpoint)."""
         return dict(self._agent.graph.get_state({"configurable": {"thread_id": thread_id}}).values or {})
+
+    def restore_state(self, thread_id: str, snapshot: dict[str, Any]) -> None:
+        """Replace a thread checkpoint with a complete pre-run snapshot.
+
+        Reducer-backed channels need `Overwrite`; ordinary updates would merge
+        the interrupted run's messages, todos, and ledgers back into the state.
+        """
+        if not snapshot:
+            self._db.checkpointer.delete_thread(thread_id)
+            return
+
+        defaults: dict[str, Any] = {
+            "messages": [],
+            "todos": None,
+            "artifacts": [],
+            "goal": None,
+            "delegations": [],
+            "skill_context": [],
+            "title": None,
+            "summary_text": None,
+            "uploaded_files": [],
+        }
+        reducer_channels = {"messages", "todos", "artifacts", "goal", "delegations", "skill_context"}
+        restored = {}
+        for name, default in defaults.items():
+            value = deepcopy(snapshot.get(name, default))
+            restored[name] = Overwrite(value) if name in reducer_channels else value
+        for name, value in snapshot.items():
+            if name not in restored:
+                restored[name] = deepcopy(value)
+        self._agent.graph.update_state({"configurable": {"thread_id": thread_id}}, restored)
 
     def receipts(self, thread_id: str) -> list[dict[str, Any]]:
         """Every tool call recorded in a thread, as receipts r1..rN.
@@ -186,7 +251,16 @@ class RunService:
         return {"messages": [{"role": "user", "content": message}]}
 
     @contextmanager
-    def _tracked(self, message: str, thread_id: str, user_id: str) -> Iterator[_Run]:
+    def _tracked(
+        self,
+        message: str,
+        thread_id: str,
+        user_id: str,
+        *,
+        idempotency_key: str | None = None,
+        request_hash: str | None = None,
+        multitask_strategy: str = "reject",
+    ) -> Iterator[_Run]:
         """Claim the thread and record the run around the `with` body.
 
         The body sets `run.state` if it has the final state; otherwise it is read
@@ -198,8 +272,20 @@ class RunService:
         if not threads.claim(thread_id):
             raise ThreadBusyError(f"thread {thread_id!r} already has a run in progress")
 
-        run_id = runs.start(thread_id, user_id, self._agent.model_name)
-        config: dict[str, Any] = {"configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id}}
+        run_id = runs.start(
+            thread_id,
+            user_id,
+            self._agent.model_name,
+            idempotency_key=idempotency_key,
+            request_hash=request_hash,
+            multitask_strategy=multitask_strategy,
+        )
+        config: dict[str, Any] = {
+            "configurable": {"thread_id": thread_id, "user_id": user_id, "run_id": run_id},
+            "run_id": UUID(run_id),
+            "run_name": "DearFlow",
+            "metadata": {"thread_id": thread_id, "dearflow_run_id": run_id},
+        }
         counter = self._agent.usage.open(run_id)
         if self._track_usage:
             config["callbacks"] = [UsageCallback(counter)]  # sees the lead agent, subagents and middleware

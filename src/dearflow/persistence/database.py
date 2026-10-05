@@ -42,6 +42,9 @@ CREATE TABLE IF NOT EXISTS runs (
     subagent_tokens     INTEGER NOT NULL DEFAULT 0,
     middleware_tokens   INTEGER NOT NULL DEFAULT 0,
     token_usage_by_model TEXT NOT NULL DEFAULT '{}',  -- JSON: model -> tokens
+    idempotency_key     TEXT,
+    request_hash        TEXT,
+    multitask_strategy  TEXT NOT NULL DEFAULT 'reject',
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
@@ -86,6 +89,9 @@ class Database:
         ("threads", "metadata", "TEXT NOT NULL DEFAULT '{}'"),
         ("runs", "stop_reason", "TEXT"),
         ("runs", "token_usage_by_model", "TEXT NOT NULL DEFAULT '{}'"),
+        ("runs", "idempotency_key", "TEXT"),
+        ("runs", "request_hash", "TEXT"),
+        ("runs", "multitask_strategy", "TEXT NOT NULL DEFAULT 'reject'"),
         *(
             ("runs", name, "INTEGER NOT NULL DEFAULT 0")
             for name in (
@@ -106,6 +112,10 @@ class Database:
             existing = {row["name"] for row in self._conn.execute(f"PRAGMA table_info({table})")}
             if column not in existing:
                 self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_runs_idempotency_key "
+            "ON runs (idempotency_key) WHERE idempotency_key IS NOT NULL"
+        )
         self._conn.commit()
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> list[sqlite3.Row]:

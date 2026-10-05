@@ -1,3 +1,5 @@
+from dataclasses import is_dataclass
+
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import tool
@@ -22,6 +24,15 @@ def test_build_returns_an_invokable_agent():
     result = agent.graph.invoke({"messages": [{"role": "user", "content": "Hello"}]})
     assert result["messages"][-1].content == "Hi"
     assert "sandbox" not in result
+
+
+def test_lead_agent_is_a_plain_class():
+    agent = LeadAgent(graph="compiled", model_name="m", usage="usage")
+
+    assert not is_dataclass(agent)
+    assert agent.graph == "compiled"
+    assert agent.model_name == "m"
+    assert agent.usage == "usage"
 
 
 def test_runtime_model_override_and_alias_resolution():

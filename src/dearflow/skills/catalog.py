@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -24,11 +25,16 @@ class SkillCatalog:
 
     @classmethod
     def discover(cls, root: str | Path) -> SkillCatalog:
-        """Find every `SKILL.md` under `root`. Malformed ones are logged and skipped."""
+        """Find skill packages without treating their nested fixtures as skills."""
         root_path = Path(root)
         skills: list[Skill] = []
         if root_path.is_dir():
-            for skill_file in sorted(root_path.rglob("SKILL.md")):
+            for directory, child_directories, filenames in os.walk(root_path):
+                child_directories.sort()
+                if "SKILL.md" not in filenames:
+                    continue
+                child_directories.clear()
+                skill_file = Path(directory) / "SKILL.md"
                 try:
                     skills.append(Skill.from_file(skill_file))
                 except SkillParseError as exc:

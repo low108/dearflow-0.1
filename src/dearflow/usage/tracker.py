@@ -18,6 +18,7 @@ SUBAGENT = "subagent"
 MIDDLEWARE = "middleware"  # model calls made by middleware: title, summarization...
 CALLER_KEY = "dearflow_caller"  # metadata tag; the subagent executor sets it to SUBAGENT
 TOKEN_CAPPED = "token_capped"
+LOOP_CAPPED = "loop_capped"
 
 
 @dataclass
@@ -33,7 +34,7 @@ class RunUsage:
     llm_calls: int = 0
     by_caller: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     by_model: dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    stop_reason: str | None = None  # TOKEN_CAPPED when the budget stopped the run
+    stop_reason: str | None = None  # TOKEN_CAPPED / LOOP_CAPPED when middleware stopped the run
     warned: bool = False
     pending_warnings: list[str] = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)

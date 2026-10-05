@@ -105,6 +105,8 @@ def test_default_chain_order_with_context():
     chain = MiddlewareChain.default(plan_mode=True, context=ContextConfig(), model=ToolCapableFakeModel(responses=[]))
 
     assert names(chain) == [
+        "InputSanitizationMiddleware",
+        "DanglingToolCallMiddleware",
         "ToolErrorHandlingMiddleware",
         "DynamicContextMiddleware",
         "SummarizationMiddleware",
@@ -120,7 +122,12 @@ def test_context_middleware_can_be_disabled():
     )
     chain = MiddlewareChain.default(context=context, model=ToolCapableFakeModel(responses=[]))
 
-    assert names(chain) == ["ToolErrorHandlingMiddleware", "ClarificationMiddleware"]
+    assert names(chain) == [
+        "InputSanitizationMiddleware",
+        "DanglingToolCallMiddleware",
+        "ToolErrorHandlingMiddleware",
+        "ClarificationMiddleware",
+    ]
 
 
 def test_real_graph_adds_date_and_title_and_keeps_history_ordered():

@@ -1,0 +1,11 @@
+DearFlow middleware flow companion
+Created 5 October 2026
+
+Start with index.html, or read dearflow-middleware-flow.pdf.
+The 13 sections explain the lifecycle, all 14 middleware and how to compare snapshots.
+
+References point to ../middleware-guide-20261005/dearflow-middleware-guide.pdf.
+Keep both folders beside each other. If a PDF viewer ignores the relative link, open the original guide and go to the printed page number.
+
+references.json contains verified page mappings, execution order and source references.
+Examples marked as illustrations are explanatory, not newly executed traces.

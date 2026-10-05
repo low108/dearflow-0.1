@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import threading
 
-from dearflow.memory.extractor import Exchange, FactExtractor
+from dearflow.memory.exchange import Exchange
+from dearflow.memory.extractor import FactExtractor
 from dearflow.memory.store import MemoryStore
 
 logger = logging.getLogger(__name__)

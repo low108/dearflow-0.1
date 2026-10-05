@@ -172,6 +172,14 @@ class GatewayConfig(_Config):
     retain_seconds: float = Field(default=120, ge=0)  # how long a finished run stays joinable in memory
 
 
+class ObservabilityConfig(_Config):
+    """Extra middleware traces; LangSmith export is controlled by its environment variables."""
+
+    middleware_snapshots: bool = False
+    capture_content: bool = False
+    max_snapshot_chars: int = Field(default=20_000, ge=256, le=1_000_000)
+
+
 class TokenUsageConfig(_Config):
     """Count tokens per run and save the totals with the run record."""
 
@@ -192,6 +200,23 @@ class TokenBudgetConfig(_Config):
     def _hard_stop_not_before_warning(self) -> TokenBudgetConfig:
         if self.hard_stop_threshold < self.warn_threshold:
             raise ValueError("hard_stop_threshold must be >= warn_threshold")
+        return self
+
+
+class LoopDetectionConfig(_Config):
+    """Stop a model from repeating the same tool call indefinitely."""
+
+    enabled: bool = True
+    warn_threshold: int = Field(default=3, ge=2)
+    hard_limit: int = Field(default=5, ge=3)
+    window_size: int = Field(default=20, ge=3)
+
+    @model_validator(mode="after")
+    def _hard_limit_after_warning(self) -> LoopDetectionConfig:
+        if self.hard_limit <= self.warn_threshold:
+            raise ValueError("hard_limit must be greater than warn_threshold")
+        if self.window_size < self.hard_limit:
+            raise ValueError("window_size must be >= hard_limit")
         return self
 
 
@@ -252,7 +277,9 @@ class AppConfig(_Config):
     verification: VerificationConfig = Field(default_factory=VerificationConfig)
     pii_redaction: PiiRedactionConfig = Field(default_factory=PiiRedactionConfig)
     token_usage: TokenUsageConfig = Field(default_factory=TokenUsageConfig)
+    observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     token_budget: TokenBudgetConfig = Field(default_factory=TokenBudgetConfig)
+    loop_detection: LoopDetectionConfig = Field(default_factory=LoopDetectionConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     persistence: PersistenceConfig = Field(default_factory=PersistenceConfig)
     mcp: McpConfig = Field(default_factory=McpConfig)
